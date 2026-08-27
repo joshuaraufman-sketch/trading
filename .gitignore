@@ -1,0 +1,35 @@
+# Secrets / environment variables
+.env
+.env.*
+*.env
+
+# Alpaca credentials
+alpaca_keys.txt
+credentials.json
+secrets.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local market data
+data/raw/
+data/cache/
+
+# Backtest outputs that shouldn't be versioned
+reports/generated/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
