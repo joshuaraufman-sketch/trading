@@ -29,3 +29,11 @@ trading/
 │       ├── execution/
 │       └── risk/
 └── tests/
+## Safety rules
+
+- Research and paper trading first.
+- No live brokerage credentials in GitHub.
+- No strategy advances because of one attractive backtest.
+- Fees and slippage must be included.
+- Holdout data remains untouched until strategy parameters are frozen.
+- Risk controls are deterministic; AI may analyze but should not bypass them.
