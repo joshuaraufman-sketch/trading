@@ -22,8 +22,7 @@ class TradeCandidate:
 
 @dataclass
 class OpenPosition:
-    symbol: str
-    exit_time: pd.Timestamp
+    trade: Trade
     capital_committed: float
 
 
@@ -140,16 +139,6 @@ def run_long_signal_backtest(
     slippage_bps: float = 5,
     fee_per_share: float = 0.005,
 ) -> list[Trade]:
-    """
-    Chronological long-only backtest runner.
-
-    Portfolio assumptions:
-        - no leverage
-        - no margin
-        - overlapping positions may exist across symbols
-        - new positions cannot exceed available cash
-        - same-symbol trades cannot overlap
-    """
 
     required = {
         "symbol",
@@ -194,19 +183,25 @@ def run_long_signal_backtest(
         holding_days=holding_days,
     )
 
-    trades: list[Trade] = []
+    completed_trades: list[Trade] = []
+    open_positions: list[OpenPosition] = []
 
     realized_equity = starting_equity
-    open_positions: list[OpenPosition] = []
 
     for candidate in candidates:
 
-        # Release cash from positions that have already exited.
-        open_positions = [
-            position
-            for position in open_positions
-            if position.exit_time >= candidate.entry_time
-        ]
+        # First realize any positions that exited before
+        # this candidate enters.
+        still_open: list[OpenPosition] = []
+
+        for position in open_positions:
+            if position.trade.exit_time < candidate.entry_time:
+                realized_equity += position.trade.net_pnl
+                completed_trades.append(position.trade)
+            else:
+                still_open.append(position)
+
+        open_positions = still_open
 
         capital_in_use = sum(
             position.capital_committed
@@ -271,23 +266,28 @@ def run_long_signal_backtest(
             ),
         )
 
-        trades.append(trade)
-
-        capital_committed = (
-            entry_price * quantity
-        )
-
         open_positions.append(
             OpenPosition(
-                symbol=candidate.symbol,
-                exit_time=candidate.exit_time,
-                capital_committed=capital_committed,
+                trade=trade,
+                capital_committed=entry_price * quantity,
             )
         )
 
-        # For this simplified accounting model,
-        # realized P&L is added when the trade is created.
-        # Capital remains reserved until exit_time.
-        realized_equity += trade.net_pnl
+    # Realize any positions still open after the final entry event.
+    for position in sorted(
+        open_positions,
+        key=lambda item: (
+            item.trade.exit_time,
+            item.trade.symbol,
+        ),
+    ):
+        realized_equity += position.trade.net_pnl
+        completed_trades.append(position.trade)
 
-    return trades
+    return sorted(
+        completed_trades,
+        key=lambda trade: (
+            trade.entry_time,
+            trade.symbol,
+        ),
+    )
