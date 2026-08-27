@@ -1,0 +1,41 @@
+{
+  "experiment_time_utc": "20260827T220010Z",
+  "strategy": "sma_crossover",
+  "dataset": "development",
+  "parameters": {
+    "symbols": [
+      "SPY",
+      "QQQ",
+      "IWM",
+      "DIA"
+    ],
+    "sma_window": 40,
+    "holding_days": 5,
+    "stop_loss_pct": 0.02,
+    "starting_equity": 100000,
+    "risk_pct": 0.005,
+    "slippage_bps": 5,
+    "fee_per_share": 0.005
+  },
+  "metrics": {
+    "trade_count": 177,
+    "win_rate": 0.5480225988700564,
+    "gross_profit": 51180.72976500031,
+    "gross_loss": 40381.92368469977,
+    "net_profit": 10798.806080300537,
+    "profit_factor": 1.2674168314668992,
+    "expectancy": 61.01020384350586,
+    "average_r": 0.12200179845766848,
+    "max_drawdown_pct": 0.04880973675918129,
+    "ending_equity": 110798.80608030054
+  },
+  "evaluation": {
+    "passed": false,
+    "checks": {
+      "minimum_trades": false,
+      "minimum_profit_factor": true,
+      "maximum_drawdown": true,
+      "positive_expectancy": true
+    }
+  }
+}
