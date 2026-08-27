@@ -1,0 +1,43 @@
+{
+  "experiment_time_utc": "20260827T220727Z",
+  "strategy": "sma_crossover",
+  "dataset": "holdout_2025",
+  "parameters": {
+    "symbols": [
+      "SPY",
+      "QQQ",
+      "IWM",
+      "DIA"
+    ],
+    "sma_window": 10,
+    "holding_days": 10,
+    "stop_loss_pct": 0.02,
+    "starting_equity": 100000,
+    "risk_pct": 0.005,
+    "slippage_bps": 5,
+    "fee_per_share": 0.005,
+    "parameters_frozen_before_holdout": true,
+    "holdout_access": "one_time_final_evaluation"
+  },
+  "metrics": {
+    "trade_count": 62,
+    "win_rate": 0.46774193548387094,
+    "gross_profit": 18704.684655000066,
+    "gross_loss": 14895.813390999918,
+    "net_profit": 3808.87126400015,
+    "profit_factor": 1.2557007908209616,
+    "expectancy": 61.43340748387339,
+    "average_r": 0.1324787607169318,
+    "max_drawdown_pct": 0.08685681186099958,
+    "ending_equity": 103808.87126400015
+  },
+  "evaluation": {
+    "passed": true,
+    "checks": {
+      "minimum_trades": true,
+      "minimum_profit_factor": true,
+      "maximum_drawdown": true,
+      "positive_expectancy": true
+    }
+  }
+}
