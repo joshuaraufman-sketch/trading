@@ -23,6 +23,8 @@ RISK_PCT = 0.005
 MAXIMUM_POSITION_PCT = 0.25
 MAXIMUM_RISK_PCT = 0.005
 
+MAX_NEW_ORDERS_PER_RUN = 1
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -46,6 +48,11 @@ def main():
         print("mode: PAPER SUBMISSION ENABLED")
     else:
         print("mode: DRY RUN")
+
+    print(
+        f"maximum new orders this run: "
+        f"{MAX_NEW_ORDERS_PER_RUN}"
+    )
 
     account = get_account_state()
 
@@ -72,6 +79,7 @@ def main():
     signal_df = strategy.generate_signals(df)
 
     submitted = 0
+    approved_candidates = 0
 
     for symbol in SYMBOLS:
         symbol_df = (
@@ -138,6 +146,15 @@ def main():
             print("action: BLOCKED")
             continue
 
+        approved_candidates += 1
+
+        if approved_candidates > MAX_NEW_ORDERS_PER_RUN:
+            print(
+                "action: BLOCKED — maximum new orders "
+                "per run reached"
+            )
+            continue
+
         if not args.submit_paper:
             print("action: DRY RUN — no order submitted")
             continue
@@ -152,9 +169,16 @@ def main():
         print(f"order id: {response.id}")
         print(f"status: {response.status}")
 
+        if submitted >= MAX_NEW_ORDERS_PER_RUN:
+            print(
+                "submission limit reached; "
+                "no additional orders will be sent"
+            )
+
     print()
     print("SUMMARY")
     print("-------")
+    print(f"approved candidates: {approved_candidates}")
     print(f"paper orders submitted: {submitted}")
 
 
