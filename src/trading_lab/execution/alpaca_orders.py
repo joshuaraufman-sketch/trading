@@ -58,3 +58,22 @@ def submit_paper_market_order(
     return client.submit_order(
         order_data=request,
     )
+
+
+def get_paper_order(
+    order_id: str,
+):
+    """
+    Retrieve one order from the Alpaca paper account.
+    """
+
+    if not order_id:
+        raise ValueError(
+            "order_id is required."
+        )
+
+    client = _get_paper_trading_client()
+
+    return client.get_order_by_id(
+        order_id
+    )
