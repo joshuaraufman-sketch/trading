@@ -11,6 +11,10 @@ from trading_lab.execution.alpaca_orders import submit_paper_market_order
 from trading_lab.execution.planner import build_long_order_plan
 from trading_lab.risk.exposure_checks import check_existing_exposure
 from trading_lab.risk.order_checks import check_order_plan
+from trading_lab.risk.session_checks import (
+    check_execution_window,
+    check_signal_freshness,
+)
 from trading_lab.strategies.sma_crossover import SMACrossoverStrategy
 
 
@@ -22,8 +26,8 @@ RISK_PCT = 0.005
 
 MAXIMUM_POSITION_PCT = 0.25
 MAXIMUM_RISK_PCT = 0.005
-
 MAX_NEW_ORDERS_PER_RUN = 1
+MAXIMUM_SIGNAL_AGE_DAYS = 1
 
 
 def parse_args():
@@ -52,6 +56,17 @@ def main():
     print(
         f"maximum new orders this run: "
         f"{MAX_NEW_ORDERS_PER_RUN}"
+    )
+
+    session = check_execution_window()
+
+    print(
+        f"market-session approved: "
+        f"{session.approved}"
+    )
+    print(
+        f"market-session reason: "
+        f"{session.reason}"
     )
 
     account = get_account_state()
@@ -94,13 +109,34 @@ def main():
             continue
 
         latest = symbol_df.iloc[-1]
+
+        latest_time = latest["timestamp"]
+        latest_close = float(latest["close"])
         signal = bool(latest["signal"])
 
         print()
         print(symbol)
         print(f"signal: {signal}")
+        print(f"signal bar: {latest_time}")
 
         if not signal:
+            continue
+
+        freshness = check_signal_freshness(
+            signal_time=latest_time,
+            maximum_age_days=MAXIMUM_SIGNAL_AGE_DAYS,
+        )
+
+        if not freshness.approved:
+            print("risk approved: False")
+            print(f"risk reason: {freshness.reason}")
+            print("action: BLOCKED")
+            continue
+
+        if not session.approved:
+            print("risk approved: False")
+            print(f"risk reason: {session.reason}")
+            print("action: BLOCKED")
             continue
 
         exposure = check_existing_exposure(
@@ -113,9 +149,6 @@ def main():
             print(f"risk reason: {exposure.reason}")
             print("action: BLOCKED")
             continue
-
-        latest_time = latest["timestamp"]
-        latest_close = float(latest["close"])
 
         order = build_long_order_plan(
             symbol=symbol,
@@ -168,12 +201,6 @@ def main():
         print("action: PAPER ORDER SUBMITTED")
         print(f"order id: {response.id}")
         print(f"status: {response.status}")
-
-        if submitted >= MAX_NEW_ORDERS_PER_RUN:
-            print(
-                "submission limit reached; "
-                "no additional orders will be sent"
-            )
 
     print()
     print("SUMMARY")
