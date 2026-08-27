@@ -1,1 +1,57 @@
+project:
+  mode: "research"
+  live_trading_enabled: false
 
+universe:
+  asset_class: "US_equities"
+  allow_shorting: false
+
+research:
+  minimum_trades: 200
+
+  maximum_drawdown_pct: 20
+
+  minimum_profit_factor: 1.25
+
+  require_positive_expectancy: true
+  require_benchmark_comparison: true
+
+  transaction_costs:
+    include_fees: true
+    include_slippage: true
+
+  anti_overfitting:
+    require_out_of_sample_validation: true
+    require_parameter_sensitivity_test: true
+    require_walk_forward_test: true
+
+data:
+  split:
+    development_pct: 60
+    validation_pct: 20
+    holdout_pct: 20
+
+  holdout:
+    accessible_during_strategy_development: false
+    unlock_only_after_parameters_frozen: true
+
+paper_trading:
+  enabled: true
+
+  minimum_forward_test_trades: 30
+  minimum_forward_test_days: 60
+
+promotion:
+  allow_automatic_promotion_to_live: false
+  require_human_approval: true
+
+risk:
+  ai_can_override_limits: false
+
+  maximum_strategy_drawdown_pct: 15
+  maximum_portfolio_drawdown_pct: 20
+
+  reject_orders_on:
+    stale_market_data: true
+    execution_error: true
+    position_limit_violation: true
