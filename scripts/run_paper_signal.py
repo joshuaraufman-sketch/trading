@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from alpaca.data.enums import DataFeed
 
@@ -10,6 +11,7 @@ from trading_lab.execution.alpaca_account import get_account_state
 from trading_lab.execution.alpaca_orders import submit_paper_market_order
 from trading_lab.execution.forward_log import save_forward_run
 from trading_lab.execution.planner import build_long_order_plan
+from trading_lab.risk.daily_order_limit import check_daily_order_limit
 from trading_lab.risk.exposure_checks import check_existing_exposure
 from trading_lab.risk.order_checks import check_order_plan
 from trading_lab.risk.session_checks import (
@@ -18,6 +20,9 @@ from trading_lab.risk.session_checks import (
 )
 from trading_lab.strategies.sma_crossover import SMACrossoverStrategy
 
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+FORWARD_LOG_DIR = PROJECT_ROOT / "reports" / "forward_test"
 
 SYMBOLS = ["SPY", "QQQ", "IWM", "DIA"]
 
@@ -28,6 +33,7 @@ RISK_PCT = 0.005
 MAXIMUM_POSITION_PCT = 0.25
 MAXIMUM_RISK_PCT = 0.005
 MAX_NEW_ORDERS_PER_RUN = 1
+MAX_NEW_ORDERS_PER_DAY = 1
 MAXIMUM_SIGNAL_AGE_DAYS = 1
 
 
@@ -60,8 +66,17 @@ def main():
         f"maximum new orders this run: "
         f"{MAX_NEW_ORDERS_PER_RUN}"
     )
+    print(
+        f"maximum new orders per day: "
+        f"{MAX_NEW_ORDERS_PER_DAY}"
+    )
 
     session = check_execution_window()
+
+    daily_limit = check_daily_order_limit(
+        log_dir=FORWARD_LOG_DIR,
+        maximum_orders_per_day=MAX_NEW_ORDERS_PER_DAY,
+    )
 
     print(
         f"market-session approved: "
@@ -70,6 +85,14 @@ def main():
     print(
         f"market-session reason: "
         f"{session.reason}"
+    )
+    print(
+        f"daily-order-limit approved: "
+        f"{daily_limit.approved}"
+    )
+    print(
+        f"daily-order-limit reason: "
+        f"{daily_limit.reason}"
     )
 
     account = get_account_state()
@@ -102,6 +125,10 @@ def main():
         "session_check": {
             "approved": session.approved,
             "reason": session.reason,
+        },
+        "daily_order_limit_check": {
+            "approved": daily_limit.approved,
+            "reason": daily_limit.reason,
         },
         "symbols": [],
     }
@@ -197,6 +224,16 @@ def main():
             print("action: BLOCKED")
             symbol_record["action"] = (
                 "blocked_market_session"
+            )
+            run_record["symbols"].append(
+                symbol_record
+            )
+            continue
+
+        if not daily_limit.approved:
+            print("action: BLOCKED")
+            symbol_record["action"] = (
+                "blocked_daily_order_limit"
             )
             run_record["symbols"].append(
                 symbol_record

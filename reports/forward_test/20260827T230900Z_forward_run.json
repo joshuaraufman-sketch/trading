@@ -1,0 +1,91 @@
+{
+  "run_time_utc": "2026-08-27T23:08:59.704699+00:00",
+  "mode": "dry_run",
+  "strategy": {
+    "name": "sma_crossover",
+    "sma_window": 10,
+    "holding_days": 10,
+    "stop_loss_pct": 0.02,
+    "risk_pct": 0.005,
+    "market_data_feed": "IEX"
+  },
+  "account": {
+    "equity": 100133.53,
+    "cash": 89896.53,
+    "buying_power": 388249.72,
+    "positions": [
+      {
+        "symbol": "BUD",
+        "qty": 1.0,
+        "market_value": 79.1,
+        "avg_entry_price": 79.1,
+        "unrealized_pl": 0.0
+      },
+      {
+        "symbol": "QQQ",
+        "qty": 10.0,
+        "market_value": 7194.9,
+        "avg_entry_price": 709.84,
+        "unrealized_pl": 96.5
+      },
+      {
+        "symbol": "QQQM",
+        "qty": 10.0,
+        "market_value": 2963.0,
+        "avg_entry_price": 292.596,
+        "unrealized_pl": 37.04
+      }
+    ],
+    "open_orders": []
+  },
+  "session_check": {
+    "approved": false,
+    "reason": "Outside regular market hours."
+  },
+  "daily_order_limit_check": {
+    "approved": true,
+    "reason": "Daily order limit check passed. 0/1 orders submitted today."
+  },
+  "symbols": [
+    {
+      "symbol": "SPY",
+      "signal": true,
+      "signal_time": "2026-08-27 04:00:00+00:00",
+      "reference_price": 771.18,
+      "action": "blocked_market_session",
+      "freshness_check": {
+        "approved": true,
+        "reason": "Signal freshness check passed."
+      }
+    },
+    {
+      "symbol": "QQQ",
+      "signal": true,
+      "signal_time": "2026-08-27 04:00:00+00:00",
+      "reference_price": 721.2,
+      "action": "blocked_market_session",
+      "freshness_check": {
+        "approved": true,
+        "reason": "Signal freshness check passed."
+      }
+    },
+    {
+      "symbol": "IWM",
+      "signal": false,
+      "signal_time": "2026-08-27 04:00:00+00:00",
+      "reference_price": 299.81,
+      "action": "no_signal"
+    },
+    {
+      "symbol": "DIA",
+      "signal": false,
+      "signal_time": "2026-08-27 04:00:00+00:00",
+      "reference_price": 535.18,
+      "action": "no_signal"
+    }
+  ],
+  "summary": {
+    "approved_candidates": 0,
+    "paper_orders_submitted": 0
+  }
+}
