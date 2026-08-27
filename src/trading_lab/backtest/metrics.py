@@ -25,10 +25,51 @@ def trades_to_frame(trades: Iterable[Trade]) -> pd.DataFrame:
                 "gross_pnl": trade.gross_pnl,
                 "net_pnl": trade.net_pnl,
                 "return_pct": trade.return_pct,
+                "initial_risk": trade.initial_risk,
+                "r_multiple": trade.r_multiple,
             }
         )
 
     return pd.DataFrame(rows)
+
+
+def build_equity_curve(
+    trades: Iterable[Trade],
+    starting_equity: float,
+) -> pd.DataFrame:
+    trades = list(trades)
+
+    if starting_equity <= 0:
+        raise ValueError("starting_equity must be greater than zero")
+
+    rows = [
+        {
+            "trade_number": 0,
+            "equity": starting_equity,
+        }
+    ]
+
+    equity = starting_equity
+
+    for number, trade in enumerate(trades, start=1):
+        equity += trade.net_pnl
+
+        rows.append(
+            {
+                "trade_number": number,
+                "equity": equity,
+            }
+        )
+
+    curve = pd.DataFrame(rows)
+
+    curve["running_peak"] = curve["equity"].cummax()
+
+    curve["drawdown_pct"] = (
+        curve["equity"] - curve["running_peak"]
+    ) / curve["running_peak"]
+
+    return curve
 
 
 def calculate_metrics(
@@ -49,11 +90,15 @@ def calculate_metrics(
             "net_profit": 0.0,
             "profit_factor": 0.0,
             "expectancy": 0.0,
+            "average_r": 0.0,
             "max_drawdown_pct": 0.0,
             "ending_equity": starting_equity,
         }
 
-    pnl = pd.Series([trade.net_pnl for trade in trades], dtype=float)
+    pnl = pd.Series(
+        [trade.net_pnl for trade in trades],
+        dtype=float,
+    )
 
     wins = pnl[pnl > 0]
     losses = pnl[pnl < 0]
@@ -68,22 +113,26 @@ def calculate_metrics(
     else:
         profit_factor = 0.0
 
-    equity = starting_equity + pnl.cumsum()
+    r_values = [
+        trade.r_multiple
+        for trade in trades
+        if trade.r_multiple is not None
+    ]
 
-    equity_with_start = pd.concat(
-        [
-            pd.Series([starting_equity], dtype=float),
-            equity,
-        ],
-        ignore_index=True,
+    average_r = (
+        float(pd.Series(r_values).mean())
+        if r_values
+        else 0.0
     )
 
-    running_peak = equity_with_start.cummax()
-    drawdown = (
-        equity_with_start - running_peak
-    ) / running_peak
+    curve = build_equity_curve(
+        trades,
+        starting_equity,
+    )
 
-    max_drawdown_pct = abs(float(drawdown.min()))
+    max_drawdown_pct = abs(
+        float(curve["drawdown_pct"].min())
+    )
 
     net_profit = float(pnl.sum())
 
@@ -95,6 +144,7 @@ def calculate_metrics(
         "net_profit": net_profit,
         "profit_factor": profit_factor,
         "expectancy": float(pnl.mean()),
+        "average_r": average_r,
         "max_drawdown_pct": max_drawdown_pct,
         "ending_equity": starting_equity + net_profit,
     }

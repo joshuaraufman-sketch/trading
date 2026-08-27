@@ -147,7 +147,7 @@ def run_long_signal_backtest(
                 fee_per_share=fee_per_share,
             )
 
-            trade = Trade(
+            trade = Trade(initial_risk_per_share=entry_price - stop_price,
                 symbol=str(symbol),
                 entry_time=entry_bar["timestamp"],
                 exit_time=exit_bar["timestamp"],

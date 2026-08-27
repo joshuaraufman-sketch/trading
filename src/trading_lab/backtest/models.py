@@ -14,6 +14,7 @@ class Trade:
     quantity: int
     fees: float = 0.0
     slippage: float = 0.0
+    initial_risk_per_share: float | None = None
 
     @property
     def gross_pnl(self) -> float:
@@ -31,3 +32,19 @@ class Trade:
             return 0.0
 
         return self.net_pnl / capital_used
+
+    @property
+    def initial_risk(self) -> float | None:
+        if self.initial_risk_per_share is None:
+            return None
+
+        return self.initial_risk_per_share * self.quantity
+
+    @property
+    def r_multiple(self) -> float | None:
+        risk = self.initial_risk
+
+        if risk is None or risk <= 0:
+            return None
+
+        return self.net_pnl / risk
