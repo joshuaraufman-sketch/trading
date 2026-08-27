@@ -18,6 +18,7 @@ from trading_lab.risk.daily_order_limit import check_daily_order_limit
 from trading_lab.risk.entry_window import check_next_open_entry_window
 from trading_lab.risk.exposure_checks import check_existing_exposure
 from trading_lab.risk.order_checks import check_order_plan
+from trading_lab.risk.pending_signal_age import check_pending_signal_age
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +27,7 @@ FORWARD_LOG_DIR = PROJECT_ROOT / "reports" / "forward_test"
 MAXIMUM_POSITION_PCT = 0.25
 MAXIMUM_RISK_PCT = 0.005
 MAX_NEW_ORDERS_PER_DAY = 1
+MAXIMUM_PENDING_SIGNAL_AGE_DAYS = 3
 
 
 def parse_args():
@@ -151,6 +153,10 @@ def main():
         f"{daily_limit.reason}"
     )
 
+    current_date = datetime.now(
+        timezone.utc
+    ).date()
+
     submitted = 0
 
     for signal in pending_signals:
@@ -167,6 +173,47 @@ def main():
             f"signal reference close: "
             f"${signal['signal_reference_price']:,.2f}"
         )
+
+        age_check = check_pending_signal_age(
+            signal_date=signal[
+                "signal_date"
+            ],
+            current_date=current_date,
+            maximum_calendar_age_days=(
+                MAXIMUM_PENDING_SIGNAL_AGE_DAYS
+            ),
+        )
+
+        print(
+            f"signal-age approved: "
+            f"{age_check.approved}"
+        )
+        print(
+            f"signal-age reason: "
+            f"{age_check.reason}"
+        )
+
+        if not age_check.approved:
+            if (
+                age_check.reason
+                == "Pending signal has expired."
+            ):
+                mark_signal_processed(
+                    signal_path,
+                    status="expired",
+                )
+
+                print(
+                    "action: EXPIRED — "
+                    "signal marked expired"
+                )
+            else:
+                print(
+                    "action: BLOCKED — "
+                    "signal age"
+                )
+
+            continue
 
         if not entry_window.approved:
             print(
