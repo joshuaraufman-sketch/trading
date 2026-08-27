@@ -4,10 +4,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from trading_lab.backtest.costs import (
-    calculate_fees,
-    calculate_slippage,
-)
+from trading_lab.backtest.costs import calculate_fees
 from trading_lab.backtest.models import Trade
 from trading_lab.backtest.position_size import calculate_position_size
 
@@ -21,6 +18,13 @@ class TradeCandidate:
     raw_entry_price: float
     raw_exit_price: float
     stop_price: float
+
+
+@dataclass
+class OpenPosition:
+    symbol: str
+    exit_time: pd.Timestamp
+    capital_committed: float
 
 
 def _apply_buy_slippage(
@@ -91,15 +95,11 @@ def _build_candidates(
                 bar_open = float(bar["open"])
                 bar_low = float(bar["low"])
 
-                # If market opens below the stop, assume the
-                # stop fills at the worse opening price.
                 if bar_open <= stop_price:
                     exit_index = j
                     raw_exit_price = bar_open
                     break
 
-                # Otherwise assume stop fills at stop price
-                # if the intraday low touches it.
                 if bar_low <= stop_price:
                     exit_index = j
                     raw_exit_price = stop_price
@@ -119,7 +119,6 @@ def _build_candidates(
                 )
             )
 
-            # Prevent overlapping trades in the same symbol.
             i = exit_index + 1
 
     return sorted(
@@ -144,16 +143,12 @@ def run_long_signal_backtest(
     """
     Chronological long-only backtest runner.
 
-    Rules:
-        - signal occurs on completed bar
-        - entry occurs at next bar open
-        - stop is fixed percentage below raw entry
-        - gap below stop fills at the worse opening price
-        - slippage worsens actual entry and exit prices
-        - otherwise exit after holding_days bars
-        - no overlapping trades within the same symbol
-
-    This is research infrastructure, not a production strategy.
+    Portfolio assumptions:
+        - no leverage
+        - no margin
+        - overlapping positions may exist across symbols
+        - new positions cannot exceed available cash
+        - same-symbol trades cannot overlap
     """
 
     required = {
@@ -200,9 +195,29 @@ def run_long_signal_backtest(
     )
 
     trades: list[Trade] = []
-    equity = starting_equity
+
+    realized_equity = starting_equity
+    open_positions: list[OpenPosition] = []
 
     for candidate in candidates:
+
+        # Release cash from positions that have already exited.
+        open_positions = [
+            position
+            for position in open_positions
+            if position.exit_time >= candidate.entry_time
+        ]
+
+        capital_in_use = sum(
+            position.capital_committed
+            for position in open_positions
+        )
+
+        available_cash = realized_equity - capital_in_use
+
+        if available_cash <= 0:
+            continue
+
         entry_price = _apply_buy_slippage(
             candidate.raw_entry_price,
             slippage_bps,
@@ -213,11 +228,20 @@ def run_long_signal_backtest(
             slippage_bps,
         )
 
-        quantity = calculate_position_size(
-            account_equity=equity,
+        risk_quantity = calculate_position_size(
+            account_equity=realized_equity,
             risk_pct=risk_pct,
             entry_price=entry_price,
             stop_price=candidate.stop_price,
+        )
+
+        cash_quantity = int(
+            available_cash // entry_price
+        )
+
+        quantity = min(
+            risk_quantity,
+            cash_quantity,
         )
 
         if quantity <= 0:
@@ -233,8 +257,6 @@ def run_long_signal_backtest(
             fee_per_share=fee_per_share,
         )
 
-        # Slippage is already reflected in fill prices,
-        # so we do not deduct it again from net P&L.
         trade = Trade(
             symbol=candidate.symbol,
             entry_time=candidate.entry_time,
@@ -251,6 +273,21 @@ def run_long_signal_backtest(
 
         trades.append(trade)
 
-        equity += trade.net_pnl
+        capital_committed = (
+            entry_price * quantity
+        )
+
+        open_positions.append(
+            OpenPosition(
+                symbol=candidate.symbol,
+                exit_time=candidate.exit_time,
+                capital_committed=capital_committed,
+            )
+        )
+
+        # For this simplified accounting model,
+        # realized P&L is added when the trade is created.
+        # Capital remains reserved until exit_time.
+        realized_equity += trade.net_pnl
 
     return trades
