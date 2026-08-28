@@ -6,11 +6,13 @@ import yaml
 
 from trading_lab.validation.forward_status import (
     summarize_forward_logs,
+    summarize_forward_trades,
 )
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LOG_DIR = PROJECT_ROOT / "reports" / "forward_test"
+TRADE_DIR = PROJECT_ROOT / "reports" / "forward_trades"
 RULES_PATH = PROJECT_ROOT / "config" / "research_rules.yaml"
 
 
@@ -31,6 +33,9 @@ def main():
     )
 
     status = summarize_forward_logs(LOG_DIR)
+    trades = summarize_forward_trades(
+        TRADE_DIR
+    )
 
     print("FORWARD TEST STATUS")
     print("-------------------")
@@ -94,17 +99,53 @@ def main():
     print()
     print("30-TRADE REQUIREMENT")
     print("--------------------")
+
+    trade_pct = (
+        min(
+            trades.completed_trades
+            / minimum_trades
+            * 100,
+            100,
+        )
+        if minimum_trades
+        else 0
+    )
+
     print(
-        "completed round-trip trades: "
-        "not yet measured"
+        f"completed round-trip trades: "
+        f"{trades.completed_trades}"
+        f"/{minimum_trades} "
+        f"({trade_pct:.1f}%)"
     )
     print(
-        f"required completed trades: "
-        f"{minimum_trades}"
+        f"open trades: "
+        f"{trades.open_trades}"
     )
     print(
-        "status: NOT YET EVALUABLE — "
-        "trade lifecycle logging is still needed"
+        f"submitted awaiting fill: "
+        f"{trades.submitted_trades}"
+    )
+    print(
+        f"invalid lifecycle records: "
+        f"{trades.invalid_records}"
+    )
+    print(
+        f"realized P&L (closed trades): "
+        f"${trades.total_realized_pnl:,.2f}"
+    )
+
+    trade_requirement_met = (
+        trades.completed_trades
+        >= minimum_trades
+    )
+
+    print(
+        "status: "
+        + (
+            "REQUIREMENT MET"
+            if trade_requirement_met
+            else "IN PROGRESS"
+        )
     )
 
     if status.action_counts:

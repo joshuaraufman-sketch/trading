@@ -167,3 +167,92 @@ def summarize_forward_logs(
         ),
         action_counts=dict(actions),
     )
+
+
+@dataclass(frozen=True)
+class TradeLifecycleStatus:
+    files: int
+    valid_records: int
+    invalid_records: int
+    submitted_trades: int
+    open_trades: int
+    completed_trades: int
+    winning_trades: int
+    losing_trades: int
+    breakeven_trades: int
+    total_realized_pnl: float
+
+
+def summarize_forward_trades(
+    trade_dir: str | Path,
+) -> TradeLifecycleStatus:
+    paths = sorted(
+        Path(trade_dir).glob("*.json")
+    )
+
+    statuses: Counter[str] = Counter()
+    valid_records = 0
+    invalid_records = 0
+    completed_trades = 0
+    winning_trades = 0
+    losing_trades = 0
+    breakeven_trades = 0
+    total_realized_pnl = 0.0
+
+    for path in paths:
+        try:
+            with path.open(
+                "r",
+                encoding="utf-8",
+            ) as file:
+                record = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            invalid_records += 1
+            continue
+
+        if not isinstance(record, dict):
+            invalid_records += 1
+            continue
+
+        status = record.get("status")
+
+        if not isinstance(status, str):
+            invalid_records += 1
+            continue
+
+        valid_records += 1
+        statuses[status] += 1
+
+        if status != "closed":
+            continue
+
+        completed_trades += 1
+
+        pnl = record.get("realized_pnl")
+
+        if (
+            isinstance(pnl, (int, float))
+            and not isinstance(pnl, bool)
+        ):
+            pnl = float(pnl)
+            total_realized_pnl += pnl
+
+            if pnl > 0:
+                winning_trades += 1
+            elif pnl < 0:
+                losing_trades += 1
+            else:
+                breakeven_trades += 1
+
+    return TradeLifecycleStatus(
+        files=len(paths),
+        valid_records=valid_records,
+        invalid_records=invalid_records,
+        submitted_trades=statuses["submitted"],
+        open_trades=statuses["open"],
+        completed_trades=completed_trades,
+        winning_trades=winning_trades,
+        losing_trades=losing_trades,
+        breakeven_trades=breakeven_trades,
+        total_realized_pnl=total_realized_pnl,
+    )
