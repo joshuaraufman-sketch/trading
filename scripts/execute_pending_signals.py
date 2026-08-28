@@ -19,6 +19,7 @@ from trading_lab.risk.entry_window import check_next_open_entry_window
 from trading_lab.risk.exposure_checks import check_existing_exposure
 from trading_lab.risk.order_checks import check_order_plan
 from trading_lab.risk.pending_signal_age import check_pending_signal_age
+from trading_lab.risk.market_calendar import check_is_next_trading_session
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -213,6 +214,27 @@ def main():
                     "signal age"
                 )
 
+            continue
+
+        session_check = check_is_next_trading_session(
+            signal_date=signal["signal_date"],
+            current_date=current_date,
+        )
+
+        print(
+            f"next-session approved: "
+            f"{session_check.approved}"
+        )
+        print(
+            f"next-session reason: "
+            f"{session_check.reason}"
+        )
+
+        if not session_check.approved:
+            print(
+                "action: BLOCKED — "
+                "not next trading session"
+            )
             continue
 
         if not entry_window.approved:
