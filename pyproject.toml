@@ -5,19 +5,19 @@ description = "Research-first AI-assisted systematic trading laboratory"
 requires-python = ">=3.11"
 
 dependencies = [
-    "alpaca-py",
-    "numpy",
-    "pandas",
-    "pyyaml",
-    "python-dotenv",
-    "scipy",
+    "alpaca-py==0.44.0",
+    "numpy==2.5.2",
+    "pandas==3.0.5",
+    "pyyaml==6.0.3",
+    "python-dotenv==1.2.3",
+    "scipy==1.18.1",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "jupyter",
-    "matplotlib",
-    "pytest",
+    "jupyter==1.1.1",
+    "matplotlib==3.11.1",
+    "pytest==9.1.1",
 ]
 
 [build-system]
