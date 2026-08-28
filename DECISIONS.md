@@ -8,6 +8,77 @@ Newest entries at the top.
 
 ---
 
+## 2026-08-28 — sma_crossover is DEAD. Do not resurrect it.
+
+**Decision:** The `sma_crossover` candidate (SMA 10 / hold 10 / stop 2%
+on SPY, QQQ, IWM, DIA) is rejected. `config/frozen_candidate.yaml` no
+longer describes a live candidate. Any future session proposing to tune,
+extend, or re-test it must read this entry first.
+
+**Evidence — development split, 2017-01-03 to 2022-12-30, rf 3%:**
+
+```
+                       STRATEGY   BUY & HOLD   40% SPY / 60% CASH
+CAGR                      5.91%       11.10%                6.28%
+volatility                8.83%       19.46%                7.88%
+Sharpe                     0.36         0.49                 0.42
+max drawdown             14.37%       33.79%               13.68%
+Calmar                     0.41         0.33                 0.46
+beta to SPY               0.243
+annualized alpha          0.87%  (t = 0.29, 95% CI -5.10% to +6.84%)
+information ratio        -0.381
+```
+
+**Three independent reasons, any one sufficient:**
+
+1. Alpha t-statistic 0.29. The confidence interval spans zero by a wide
+   margin. There is no measurable edge.
+2. It is dominated by a constant 40% index / 60% cash allocation on
+   every axis: higher return, lower volatility, smaller drawdown,
+   better Calmar. The signals, stops and sweep subtract value.
+3. Levered 2.20x to match index volatility it returns 9.41% against the
+   index's 11.10%, at a 31.67% drawdown against 33.79%. Same risk, less
+   return.
+
+All of this is *before* correcting for having swept 36 parameter
+combinations and kept the winner.
+
+**Predictions that were wrong, recorded so the reasoning improves:**
+
+- Beta was predicted above 0.6; it came in at 0.243. The error was
+  conflating "trades index ETFs" with "has index-like beta." Beta 0.243
+  against average exposure 0.405 means the low beta is a low-exposure
+  artifact. **Low beta is not evidence of edge; it is evidence of being
+  out of the market.**
+- Calendar drawdown was predicted to be materially worse than the
+  trade-ordered 14.08%; it was 14.37%. With small positions and tight
+  stops there is little unrealized swing to capture. The mark-to-market
+  machinery remains correct and will matter for higher-exposure
+  strategies, but it changed nothing here.
+
+## 2026-08-28 — Exposure-matched nulls are now standing benchmarks
+
+**Decision:** Every candidate must clear four gates, not one:
+buy-and-hold Sharpe, static-blend Sharpe, exposure-matched Sharpe, and
+alpha significance at |t| > 1.96. `run_performance_report.py` enforces
+all four and reports which failed.
+
+**Reasoning:** 100% buy-and-hold is the wrong comparator for a partially
+invested strategy — it is trivially dismissed with "of course I
+underperform, I am in cash half the time." Two nulls remove the excuse:
+
+- **Static blend.** A constant weight equal to the strategy's average
+  exposure, rebalanced daily, cash earning the risk-free rate. Asks
+  whether the apparatus beats sitting still.
+- **Exposure-matched.** Holds the index at the strategy's *own* daily
+  exposure, lagged one session. Grants the entire exposure schedule for
+  free and asks only whether symbol selection and entry timing added
+  anything. Losing to this means they are actively destructive.
+
+**Also added:** alpha now travels with a standard error, t-statistic and
+95% interval. A bare alpha of 0.87% is the single easiest way to talk
+yourself into a dead strategy.
+
 ## 2026-08-28 — Project objective set: the harness is the product
 
 **Decision:** Success is defined as systematic learning, not profit.

@@ -22,10 +22,13 @@ import yaml
 
 from trading_lab.backtest.benchmark import (
     build_benchmark_curve,
+    build_exposure_matched_curve,
+    build_static_blend_curve,
     compare_to_benchmark,
 )
 from trading_lab.backtest.equity import build_daily_equity_curve
 from trading_lab.backtest.metrics import calculate_metrics
+from trading_lab.backtest.performance import calculate_performance
 from trading_lab.backtest.runner import run_long_signal_backtest
 from trading_lab.data.alpaca import get_daily_bars
 from trading_lab.data.split import (
@@ -156,6 +159,36 @@ def main() -> None:
     strat = comparison["strategy"]
     bench = comparison["benchmark"]
 
+    # Null benchmarks. Buy-and-hold at full weight is too easy for a
+    # partially invested strategy to dismiss; these remove the excuse.
+    average_exposure = float(strat["average_exposure"])
+
+    blend_curve = build_static_blend_curve(
+        split_df,
+        BENCHMARK_SYMBOL,
+        starting_equity=starting_equity,
+        weight=min(max(average_exposure, 0.0), 1.0),
+        sessions=strategy_curve.index,
+        risk_free_rate=args.risk_free_rate,
+    )
+
+    matched_curve = build_exposure_matched_curve(
+        split_df,
+        BENCHMARK_SYMBOL,
+        strategy_curve,
+        starting_equity=starting_equity,
+        risk_free_rate=args.risk_free_rate,
+    )
+
+    blend = calculate_performance(
+        blend_curve,
+        risk_free_rate=args.risk_free_rate,
+    )
+    matched = calculate_performance(
+        matched_curve,
+        risk_free_rate=args.risk_free_rate,
+    )
+
     print()
     print(f"PERFORMANCE REPORT - {args.split.upper()}")
     print("=" * 58)
@@ -167,8 +200,11 @@ def main() -> None:
     print(f"risk-free rate assumed: {args.risk_free_rate:.2%}")
     print()
 
-    print(f"{'':<28}{'STRATEGY':>13}{'BUY & HOLD':>15}")
-    print("-" * 58)
+    print(
+        f"{'':<24}{'STRATEGY':>12}{'BUY & HOLD':>12}"
+        f"{'STATIC ' + f'{average_exposure:.0%}':>12}{'EXPOSURE-MATCH':>16}"
+    )
+    print("-" * 76)
 
     rows = [
         ("total return", "total_return", _pct),
@@ -186,22 +222,31 @@ def main() -> None:
 
     for label, key, fmt in rows:
         print(
-            f"{label:<28}{fmt(strat[key]):>13}{fmt(bench[key]):>15}"
+            f"{label:<24}{fmt(strat[key]):>12}{fmt(bench[key]):>12}"
+            f"{fmt(blend[key]):>12}{fmt(matched[key]):>16}"
         )
 
     print()
-    print("RELATIVE")
-    print("-" * 58)
-    print(f"{'beta to ' + BENCHMARK_SYMBOL:<28}{comparison['beta']:>13.3f}")
-    print(f"{'annualized alpha':<28}{comparison['annual_alpha']:>12.2%}")
-    print(f"{'correlation':<28}{comparison['correlation']:>13.3f}")
-    print(f"{'tracking error':<28}{comparison['tracking_error']:>12.2%}")
+    print("RELATIVE TO BUY & HOLD")
+    print("-" * 76)
+    print(f"{'beta to ' + BENCHMARK_SYMBOL:<24}{comparison['beta']:>12.3f}")
+    print(f"{'correlation':<24}{comparison['correlation']:>12.3f}")
+    print(f"{'tracking error':<24}{comparison['tracking_error']:>11.2%}")
     print(
-        f"{'information ratio':<28}"
-        f"{comparison['information_ratio']:>13.3f}"
+        f"{'information ratio':<24}"
+        f"{comparison['information_ratio']:>12.3f}"
+    )
+    print(f"{'excess CAGR':<24}{comparison['excess_cagr']:>11.2%}")
+    print()
+    print(f"{'annualized alpha':<24}{comparison['annual_alpha']:>11.2%}")
+    print(
+        f"{'  95% interval':<24}"
+        f"{comparison['alpha_ci_low']:>10.2%} to "
+        f"{comparison['alpha_ci_high']:.2%}"
     )
     print(
-        f"{'excess CAGR':<28}{comparison['excess_cagr']:>12.2%}"
+        f"{'  t-statistic':<24}{comparison['alpha_t_stat']:>12.2f}"
+        f"   (need |t| > 1.96)"
     )
 
     print()
@@ -225,24 +270,49 @@ def main() -> None:
     print("VERDICT")
     print("-" * 58)
 
-    beats_sharpe = comparison["beats_benchmark_on_sharpe"]
-    positive_alpha = comparison["annual_alpha"] > 0
+    # A candidate must clear every null, not just the flattering one.
+    gates = {
+        "beats buy-and-hold on Sharpe": strat["sharpe"] > bench["sharpe"],
+        "beats static blend on Sharpe": strat["sharpe"] > blend["sharpe"],
+        "beats exposure-match on Sharpe": (
+            strat["sharpe"] > matched["sharpe"]
+        ),
+        "alpha significant (|t| > 1.96)": comparison[
+            "alpha_significant_at_05"
+        ],
+    }
 
-    print(
-        f"beats buy-and-hold on Sharpe: "
-        f"{'YES' if beats_sharpe else 'NO'}"
-    )
-    print(
-        f"positive alpha after beta:    "
-        f"{'YES' if positive_alpha else 'NO'}"
-    )
+    for label, passed in gates.items():
+        print(f"{label:<36}{'PASS' if passed else 'FAIL'}")
 
-    if comparison["beta"] > 0.6 and abs(comparison["annual_alpha"]) < 0.02:
-        print()
+    print()
+
+    if all(gates.values()):
         print(
-            "High beta with negligible alpha. This is index exposure, "
-            "not edge."
+            "Clears every null on this split. Not yet evidence: correct "
+            "for selection bias across the parameter sweep before "
+            "believing it."
         )
+    else:
+        failed = [label for label, ok in gates.items() if not ok]
+        print(f"FAILS {len(failed)} of {len(gates)} gates:")
+        for label in failed:
+            print(f"  - {label}")
+
+        if not gates["beats static blend on Sharpe"]:
+            print()
+            print(
+                "Beaten by a constant weight in the index with no "
+                "signals, no stops and no sweep. The strategy machinery "
+                "is subtracting value, not adding it."
+            )
+        elif not gates["beats exposure-match on Sharpe"]:
+            print()
+            print(
+                "Given its own exposure schedule for free, holding the "
+                "index would have done better. Symbol selection and "
+                "entry timing are the problem."
+            )
 
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -258,6 +328,12 @@ def main() -> None:
                 "candidate": candidate,
                 "trade_metrics": trade_metrics,
                 "comparison": comparison,
+                "nulls": {
+                    "static_blend": blend,
+                    "exposure_matched": matched,
+                    "static_blend_weight": average_exposure,
+                },
+                "gates": gates,
             },
             file,
             indent=2,

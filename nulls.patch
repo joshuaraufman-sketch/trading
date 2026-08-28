@@ -1,0 +1,739 @@
+diff --git a/DECISIONS.md b/DECISIONS.md
+index 7856bbf..c6e245f 100644
+--- a/DECISIONS.md
++++ b/DECISIONS.md
+@@ -8,6 +8,77 @@ Newest entries at the top.
+ 
+ ---
+ 
++## 2026-08-28 — sma_crossover is DEAD. Do not resurrect it.
++
++**Decision:** The `sma_crossover` candidate (SMA 10 / hold 10 / stop 2%
++on SPY, QQQ, IWM, DIA) is rejected. `config/frozen_candidate.yaml` no
++longer describes a live candidate. Any future session proposing to tune,
++extend, or re-test it must read this entry first.
++
++**Evidence — development split, 2017-01-03 to 2022-12-30, rf 3%:**
++
++```
++                       STRATEGY   BUY & HOLD   40% SPY / 60% CASH
++CAGR                      5.91%       11.10%                6.28%
++volatility                8.83%       19.46%                7.88%
++Sharpe                     0.36         0.49                 0.42
++max drawdown             14.37%       33.79%               13.68%
++Calmar                     0.41         0.33                 0.46
++beta to SPY               0.243
++annualized alpha          0.87%  (t = 0.29, 95% CI -5.10% to +6.84%)
++information ratio        -0.381
++```
++
++**Three independent reasons, any one sufficient:**
++
++1. Alpha t-statistic 0.29. The confidence interval spans zero by a wide
++   margin. There is no measurable edge.
++2. It is dominated by a constant 40% index / 60% cash allocation on
++   every axis: higher return, lower volatility, smaller drawdown,
++   better Calmar. The signals, stops and sweep subtract value.
++3. Levered 2.20x to match index volatility it returns 9.41% against the
++   index's 11.10%, at a 31.67% drawdown against 33.79%. Same risk, less
++   return.
++
++All of this is *before* correcting for having swept 36 parameter
++combinations and kept the winner.
++
++**Predictions that were wrong, recorded so the reasoning improves:**
++
++- Beta was predicted above 0.6; it came in at 0.243. The error was
++  conflating "trades index ETFs" with "has index-like beta." Beta 0.243
++  against average exposure 0.405 means the low beta is a low-exposure
++  artifact. **Low beta is not evidence of edge; it is evidence of being
++  out of the market.**
++- Calendar drawdown was predicted to be materially worse than the
++  trade-ordered 14.08%; it was 14.37%. With small positions and tight
++  stops there is little unrealized swing to capture. The mark-to-market
++  machinery remains correct and will matter for higher-exposure
++  strategies, but it changed nothing here.
++
++## 2026-08-28 — Exposure-matched nulls are now standing benchmarks
++
++**Decision:** Every candidate must clear four gates, not one:
++buy-and-hold Sharpe, static-blend Sharpe, exposure-matched Sharpe, and
++alpha significance at |t| > 1.96. `run_performance_report.py` enforces
++all four and reports which failed.
++
++**Reasoning:** 100% buy-and-hold is the wrong comparator for a partially
++invested strategy — it is trivially dismissed with "of course I
++underperform, I am in cash half the time." Two nulls remove the excuse:
++
++- **Static blend.** A constant weight equal to the strategy's average
++  exposure, rebalanced daily, cash earning the risk-free rate. Asks
++  whether the apparatus beats sitting still.
++- **Exposure-matched.** Holds the index at the strategy's *own* daily
++  exposure, lagged one session. Grants the entire exposure schedule for
++  free and asks only whether symbol selection and entry timing added
++  anything. Losing to this means they are actively destructive.
++
++**Also added:** alpha now travels with a standard error, t-statistic and
++95% interval. A bare alpha of 0.87% is the single easiest way to talk
++yourself into a dead strategy.
++
+ ## 2026-08-28 — Project objective set: the harness is the product
+ 
+ **Decision:** Success is defined as systematic learning, not profit.
+diff --git a/config/frozen_candidate.yaml b/config/frozen_candidate.yaml
+index 9d8bdfe..10ffeee 100644
+--- a/config/frozen_candidate.yaml
++++ b/config/frozen_candidate.yaml
+@@ -1,6 +1,10 @@
+ strategy:
+   name: "sma_crossover"
+-  status: "validation_passed"
++  status: "REJECTED"
++  rejected: "2026-08-28"
++  # See DECISIONS.md. Alpha t=0.29; beaten by a static
++  # 40% index / 60% cash blend on every metric. Retained
++  # only as a regression fixture. Do not promote.
+ 
+ universe:
+   symbols:
+diff --git a/scripts/run_performance_report.py b/scripts/run_performance_report.py
+index 3783be8..f9b02b3 100644
+--- a/scripts/run_performance_report.py
++++ b/scripts/run_performance_report.py
+@@ -22,10 +22,13 @@ import yaml
+ 
+ from trading_lab.backtest.benchmark import (
+     build_benchmark_curve,
++    build_exposure_matched_curve,
++    build_static_blend_curve,
+     compare_to_benchmark,
+ )
+ from trading_lab.backtest.equity import build_daily_equity_curve
+ from trading_lab.backtest.metrics import calculate_metrics
++from trading_lab.backtest.performance import calculate_performance
+ from trading_lab.backtest.runner import run_long_signal_backtest
+ from trading_lab.data.alpaca import get_daily_bars
+ from trading_lab.data.split import (
+@@ -156,6 +159,36 @@ def main() -> None:
+     strat = comparison["strategy"]
+     bench = comparison["benchmark"]
+ 
++    # Null benchmarks. Buy-and-hold at full weight is too easy for a
++    # partially invested strategy to dismiss; these remove the excuse.
++    average_exposure = float(strat["average_exposure"])
++
++    blend_curve = build_static_blend_curve(
++        split_df,
++        BENCHMARK_SYMBOL,
++        starting_equity=starting_equity,
++        weight=min(max(average_exposure, 0.0), 1.0),
++        sessions=strategy_curve.index,
++        risk_free_rate=args.risk_free_rate,
++    )
++
++    matched_curve = build_exposure_matched_curve(
++        split_df,
++        BENCHMARK_SYMBOL,
++        strategy_curve,
++        starting_equity=starting_equity,
++        risk_free_rate=args.risk_free_rate,
++    )
++
++    blend = calculate_performance(
++        blend_curve,
++        risk_free_rate=args.risk_free_rate,
++    )
++    matched = calculate_performance(
++        matched_curve,
++        risk_free_rate=args.risk_free_rate,
++    )
++
+     print()
+     print(f"PERFORMANCE REPORT - {args.split.upper()}")
+     print("=" * 58)
+@@ -167,8 +200,11 @@ def main() -> None:
+     print(f"risk-free rate assumed: {args.risk_free_rate:.2%}")
+     print()
+ 
+-    print(f"{'':<28}{'STRATEGY':>13}{'BUY & HOLD':>15}")
+-    print("-" * 58)
++    print(
++        f"{'':<24}{'STRATEGY':>12}{'BUY & HOLD':>12}"
++        f"{'STATIC ' + f'{average_exposure:.0%}':>12}{'EXPOSURE-MATCH':>16}"
++    )
++    print("-" * 76)
+ 
+     rows = [
+         ("total return", "total_return", _pct),
+@@ -186,22 +222,31 @@ def main() -> None:
+ 
+     for label, key, fmt in rows:
+         print(
+-            f"{label:<28}{fmt(strat[key]):>13}{fmt(bench[key]):>15}"
++            f"{label:<24}{fmt(strat[key]):>12}{fmt(bench[key]):>12}"
++            f"{fmt(blend[key]):>12}{fmt(matched[key]):>16}"
+         )
+ 
+     print()
+-    print("RELATIVE")
+-    print("-" * 58)
+-    print(f"{'beta to ' + BENCHMARK_SYMBOL:<28}{comparison['beta']:>13.3f}")
+-    print(f"{'annualized alpha':<28}{comparison['annual_alpha']:>12.2%}")
+-    print(f"{'correlation':<28}{comparison['correlation']:>13.3f}")
+-    print(f"{'tracking error':<28}{comparison['tracking_error']:>12.2%}")
++    print("RELATIVE TO BUY & HOLD")
++    print("-" * 76)
++    print(f"{'beta to ' + BENCHMARK_SYMBOL:<24}{comparison['beta']:>12.3f}")
++    print(f"{'correlation':<24}{comparison['correlation']:>12.3f}")
++    print(f"{'tracking error':<24}{comparison['tracking_error']:>11.2%}")
+     print(
+-        f"{'information ratio':<28}"
+-        f"{comparison['information_ratio']:>13.3f}"
++        f"{'information ratio':<24}"
++        f"{comparison['information_ratio']:>12.3f}"
+     )
++    print(f"{'excess CAGR':<24}{comparison['excess_cagr']:>11.2%}")
++    print()
++    print(f"{'annualized alpha':<24}{comparison['annual_alpha']:>11.2%}")
+     print(
+-        f"{'excess CAGR':<28}{comparison['excess_cagr']:>12.2%}"
++        f"{'  95% interval':<24}"
++        f"{comparison['alpha_ci_low']:>10.2%} to "
++        f"{comparison['alpha_ci_high']:.2%}"
++    )
++    print(
++        f"{'  t-statistic':<24}{comparison['alpha_t_stat']:>12.2f}"
++        f"   (need |t| > 1.96)"
+     )
+ 
+     print()
+@@ -225,24 +270,49 @@ def main() -> None:
+     print("VERDICT")
+     print("-" * 58)
+ 
+-    beats_sharpe = comparison["beats_benchmark_on_sharpe"]
+-    positive_alpha = comparison["annual_alpha"] > 0
++    # A candidate must clear every null, not just the flattering one.
++    gates = {
++        "beats buy-and-hold on Sharpe": strat["sharpe"] > bench["sharpe"],
++        "beats static blend on Sharpe": strat["sharpe"] > blend["sharpe"],
++        "beats exposure-match on Sharpe": (
++            strat["sharpe"] > matched["sharpe"]
++        ),
++        "alpha significant (|t| > 1.96)": comparison[
++            "alpha_significant_at_05"
++        ],
++    }
+ 
+-    print(
+-        f"beats buy-and-hold on Sharpe: "
+-        f"{'YES' if beats_sharpe else 'NO'}"
+-    )
+-    print(
+-        f"positive alpha after beta:    "
+-        f"{'YES' if positive_alpha else 'NO'}"
+-    )
++    for label, passed in gates.items():
++        print(f"{label:<36}{'PASS' if passed else 'FAIL'}")
++
++    print()
+ 
+-    if comparison["beta"] > 0.6 and abs(comparison["annual_alpha"]) < 0.02:
+-        print()
++    if all(gates.values()):
+         print(
+-            "High beta with negligible alpha. This is index exposure, "
+-            "not edge."
++            "Clears every null on this split. Not yet evidence: correct "
++            "for selection bias across the parameter sweep before "
++            "believing it."
+         )
++    else:
++        failed = [label for label, ok in gates.items() if not ok]
++        print(f"FAILS {len(failed)} of {len(gates)} gates:")
++        for label in failed:
++            print(f"  - {label}")
++
++        if not gates["beats static blend on Sharpe"]:
++            print()
++            print(
++                "Beaten by a constant weight in the index with no "
++                "signals, no stops and no sweep. The strategy machinery "
++                "is subtracting value, not adding it."
++            )
++        elif not gates["beats exposure-match on Sharpe"]:
++            print()
++            print(
++                "Given its own exposure schedule for free, holding the "
++                "index would have done better. Symbol selection and "
++                "entry timing are the problem."
++            )
+ 
+     REPORT_DIR.mkdir(parents=True, exist_ok=True)
+ 
+@@ -258,6 +328,12 @@ def main() -> None:
+                 "candidate": candidate,
+                 "trade_metrics": trade_metrics,
+                 "comparison": comparison,
++                "nulls": {
++                    "static_blend": blend,
++                    "exposure_matched": matched,
++                    "static_blend_weight": average_exposure,
++                },
++                "gates": gates,
+             },
+             file,
+             indent=2,
+diff --git a/src/trading_lab/backtest/benchmark.py b/src/trading_lab/backtest/benchmark.py
+index d329637..c84a54e 100644
+--- a/src/trading_lab/backtest/benchmark.py
++++ b/src/trading_lab/backtest/benchmark.py
+@@ -194,13 +194,38 @@ def compare_to_benchmark(
+     else:
+         beta = float("nan")
+ 
++    # Alpha without an error bar is not a finding. A small positive
++    # number here is the single easiest way to talk yourself into a dead
++    # strategy, so the t-statistic and interval travel with it.
+     if beta == beta:  # not NaN
+         daily_alpha = float(
+             strategy_excess.mean() - beta * benchmark_excess.mean()
+         )
+         annual_alpha = daily_alpha * TRADING_DAYS_PER_YEAR
++
++        residuals = strategy_excess - beta * benchmark_excess
++        observations = int(len(residuals))
++        residual_daily_std = float(residuals.std(ddof=1))
++
++        residual_volatility = residual_daily_std * math.sqrt(
++            TRADING_DAYS_PER_YEAR
++        )
++
++        if residual_daily_std > 0 and observations > 1:
++            alpha_standard_error = (
++                residual_daily_std
++                / math.sqrt(observations)
++                * TRADING_DAYS_PER_YEAR
++            )
++            alpha_t_stat = annual_alpha / alpha_standard_error
++        else:
++            alpha_standard_error = float("nan")
++            alpha_t_stat = float("nan")
+     else:
+         annual_alpha = float("nan")
++        residual_volatility = float("nan")
++        alpha_standard_error = float("nan")
++        alpha_t_stat = float("nan")
+ 
+     correlation = float(strategy_returns.corr(benchmark_returns))
+ 
+@@ -233,6 +258,14 @@ def compare_to_benchmark(
+         "benchmark": benchmark_performance,
+         "beta": beta,
+         "annual_alpha": annual_alpha,
++        "alpha_standard_error": alpha_standard_error,
++        "alpha_t_stat": alpha_t_stat,
++        "alpha_ci_low": annual_alpha - 1.96 * alpha_standard_error,
++        "alpha_ci_high": annual_alpha + 1.96 * alpha_standard_error,
++        "alpha_significant_at_05": bool(abs(alpha_t_stat) > 1.96)
++        if alpha_t_stat == alpha_t_stat
++        else False,
++        "residual_volatility": residual_volatility,
+         "correlation": correlation,
+         "tracking_error": tracking_error,
+         "information_ratio": information_ratio,
+@@ -249,3 +282,176 @@ def compare_to_benchmark(
+             > benchmark_performance["sharpe"]
+         ),
+     }
++
++# ---------------------------------------------------------------------
++# Null benchmarks: what you would have earned without any skill
++# ---------------------------------------------------------------------
++
++
++def _curve_from_returns(
++    returns: pd.Series,
++    *,
++    starting_equity: float,
++    exposure: pd.Series,
++) -> pd.DataFrame:
++    """
++    Assemble a standard curve frame from a series of period returns.
++
++    ``returns`` must already be lagged so that the exposure held at the
++    close of t-1 earns the return from t-1 to t. The first session is
++    seeded at ``starting_equity`` with a zero return.
++    """
++
++    equity = starting_equity * (1.0 + returns).cumprod()
++
++    curve = pd.DataFrame(
++        {
++            "equity": equity,
++            "exposure_pct": exposure.reindex(equity.index).fillna(0.0),
++        }
++    )
++
++    curve["position_value"] = curve["equity"] * curve["exposure_pct"]
++    curve["cash"] = curve["equity"] - curve["position_value"]
++    curve["open_positions"] = (curve["exposure_pct"] > 0).astype(int)
++    curve["daily_return"] = returns
++    curve["running_peak"] = curve["equity"].cummax()
++    curve["drawdown_pct"] = (
++        curve["equity"] - curve["running_peak"]
++    ) / curve["running_peak"]
++
++    curve.index.name = "session"
++
++    return curve
++
++
++def _benchmark_returns(
++    bars: pd.DataFrame,
++    symbol: str,
++    sessions: pd.Index,
++) -> pd.Series:
++    frame = bars[bars["symbol"] == symbol].copy()
++
++    if frame.empty:
++        raise ValueError(f"No bars supplied for benchmark {symbol!r}")
++
++    frame["session"] = normalize_session_dates(frame["timestamp"])
++
++    closes = (
++        frame
++        .groupby("session")["close"]
++        .last()
++        .sort_index()
++        .astype(float)
++        .reindex(sessions)
++        .ffill()
++    )
++
++    if closes.isna().any():
++        raise ValueError(
++            f"Benchmark {symbol!r} has no price on or before the first "
++            f"strategy session"
++        )
++
++    return closes.pct_change().fillna(0.0)
++
++
++def build_static_blend_curve(
++    bars: pd.DataFrame,
++    symbol: str,
++    *,
++    starting_equity: float,
++    weight: float,
++    sessions: pd.Index,
++    risk_free_rate: float = 0.0,
++) -> pd.DataFrame:
++    """
++    A fixed weight in the index, the remainder in cash, rebalanced daily.
++
++    This is the null that matters most for a partially invested
++    strategy. Comparing a strategy that averages forty percent exposure
++    against a hundred percent buy-and-hold is too easy to wave away:
++    "of course I underperform, I am in cash half the time." Matching the
++    average exposure removes that excuse. If the strategy cannot beat a
++    constant weight with no signals, no stops and no parameter sweep,
++    the entire apparatus is subtracting value.
++
++    Set ``weight`` to the strategy's average exposure.
++    """
++
++    if starting_equity <= 0:
++        raise ValueError("starting_equity must be greater than zero")
++
++    if not 0.0 <= weight <= 1.0:
++        raise ValueError("weight must be between 0 and 1")
++
++    index_returns = _benchmark_returns(bars, symbol, sessions)
++    rf_daily = (1.0 + risk_free_rate) ** (
++        1.0 / TRADING_DAYS_PER_YEAR
++    ) - 1.0
++
++    blended = weight * index_returns + (1.0 - weight) * rf_daily
++    blended.iloc[0] = 0.0
++
++    exposure = pd.Series(weight, index=sessions)
++
++    return _curve_from_returns(
++        blended,
++        starting_equity=starting_equity,
++        exposure=exposure,
++    )
++
++
++def build_exposure_matched_curve(
++    bars: pd.DataFrame,
++    symbol: str,
++    strategy_curve: pd.DataFrame,
++    *,
++    starting_equity: float,
++    risk_free_rate: float = 0.0,
++) -> pd.DataFrame:
++    """
++    Hold the index at the strategy's own daily exposure, in the index.
++
++    Sharper than the static blend. It grants the strategy its entire
++    exposure schedule for free -- every decision about when to be in and
++    how large -- and asks only whether the choice of *which* instruments
++    and *which* specific entries added anything on top. Underperforming
++    this means the symbol selection and entry timing are actively
++    destroying value, not merely failing to create it.
++
++    Exposure is lagged one session: the weight held at the close of t-1
++    earns the return from t-1 to t. Without the lag this would peek.
++    """
++
++    if starting_equity <= 0:
++        raise ValueError("starting_equity must be greater than zero")
++
++    if "exposure_pct" not in strategy_curve.columns:
++        raise ValueError(
++            "strategy_curve must contain an 'exposure_pct' column"
++        )
++
++    sessions = strategy_curve.index
++    index_returns = _benchmark_returns(bars, symbol, sessions)
++
++    rf_daily = (1.0 + risk_free_rate) ** (
++        1.0 / TRADING_DAYS_PER_YEAR
++    ) - 1.0
++
++    exposure = (
++        strategy_curve["exposure_pct"]
++        .astype(float)
++        .shift(1)
++        .fillna(0.0)
++        .clip(lower=0.0)
++    )
++
++    blended = exposure * index_returns + (1.0 - exposure) * rf_daily
++    blended.iloc[0] = 0.0
++
++    return _curve_from_returns(
++        blended,
++        starting_equity=starting_equity,
++        exposure=exposure,
++    )
+diff --git a/tests/test_null_benchmarks.py b/tests/test_null_benchmarks.py
+new file mode 100644
+index 0000000..eb674d2
+--- /dev/null
++++ b/tests/test_null_benchmarks.py
+@@ -0,0 +1,212 @@
++from __future__ import annotations
++
++import numpy as np
++import pandas as pd
++import pytest
++
++from trading_lab.backtest.benchmark import (
++    build_benchmark_curve,
++    build_exposure_matched_curve,
++    build_static_blend_curve,
++    compare_to_benchmark,
++)
++from trading_lab.backtest.equity import normalize_session_dates
++from trading_lab.backtest.performance import calculate_performance
++
++
++def _bars(seed=3, periods=520, symbol="SPY", drift=0.0004, vol=0.011):
++    rng = np.random.default_rng(seed)
++    closes = 100 * np.cumprod(1 + rng.normal(drift, vol, periods))
++    stamps = pd.bdate_range("2022-01-03", periods=periods, tz="UTC")
++
++    return pd.DataFrame(
++        {
++            "symbol": symbol,
++            "timestamp": stamps + pd.Timedelta(hours=5),
++            "close": closes,
++        }
++    )
++
++
++def _sessions(bars):
++    return pd.Index(
++        normalize_session_dates(bars["timestamp"]).unique()
++    ).sort_values()
++
++
++def test_full_weight_blend_equals_buy_and_hold():
++    bars = _bars()
++    sessions = _sessions(bars)
++
++    blend = build_static_blend_curve(
++        bars,
++        "SPY",
++        starting_equity=100_000,
++        weight=1.0,
++        sessions=sessions,
++        risk_free_rate=0.0,
++    )
++    hold = build_benchmark_curve(
++        bars,
++        "SPY",
++        starting_equity=100_000,
++        sessions=sessions,
++    )
++
++    assert blend["equity"].iloc[-1] == pytest.approx(
++        hold["equity"].iloc[-1],
++        rel=1e-9,
++    )
++
++
++def test_zero_weight_blend_earns_only_the_risk_free_rate():
++    bars = _bars()
++    sessions = _sessions(bars)
++
++    blend = build_static_blend_curve(
++        bars,
++        "SPY",
++        starting_equity=100_000,
++        weight=0.0,
++        sessions=sessions,
++        risk_free_rate=0.05,
++    )
++
++    years = (sessions[-1] - sessions[0]).days / 365.25
++    expected = 100_000 * (1.05 ** years)
++
++    assert blend["equity"].iloc[-1] == pytest.approx(expected, rel=0.02)
++    assert blend["drawdown_pct"].min() == pytest.approx(0.0)
++
++
++def test_blend_volatility_scales_with_weight():
++    bars = _bars()
++    sessions = _sessions(bars)
++
++    vols = []
++
++    for weight in (0.25, 0.5, 1.0):
++        curve = build_static_blend_curve(
++            bars,
++            "SPY",
++            starting_equity=100_000,
++            weight=weight,
++            sessions=sessions,
++        )
++        vols.append(calculate_performance(curve)["annual_volatility"])
++
++    assert vols[0] < vols[1] < vols[2]
++    # Volatility should be close to linear in weight.
++    assert vols[0] == pytest.approx(vols[2] * 0.25, rel=0.05)
++
++
++def test_exposure_matched_reproduces_a_pure_index_holder():
++    """
++    A strategy fully invested in the index every day must be matched
++    exactly by its own exposure-matched null: there is nothing left for
++    selection or timing to explain.
++    """
++
++    bars = _bars()
++    sessions = _sessions(bars)
++
++    hold = build_benchmark_curve(
++        bars,
++        "SPY",
++        starting_equity=100_000,
++        sessions=sessions,
++    )
++
++    matched = build_exposure_matched_curve(
++        bars,
++        "SPY",
++        hold,
++        starting_equity=100_000,
++        risk_free_rate=0.0,
++    )
++
++    # Exposure is lagged one session, so compare from the second bar on.
++    assert matched["equity"].iloc[-1] == pytest.approx(
++        hold["equity"].iloc[-1],
++        rel=1e-6,
++    )
++
++
++def test_exposure_matched_does_not_peek():
++    """
++    The null must not benefit from knowing tomorrow's exposure. Build a
++    strategy curve that is flat except for one perfectly timed day; the
++    matched null should not capture that day's move.
++    """
++
++    bars = _bars(seed=11, periods=60)
++    sessions = _sessions(bars)
++
++    exposure = pd.Series(0.0, index=sessions)
++    best_day = 30
++    exposure.iloc[best_day] = 1.0
++
++    strategy_curve = pd.DataFrame(
++        {"equity": 100_000.0, "exposure_pct": exposure}
++    )
++
++    matched = build_exposure_matched_curve(
++        bars,
++        "SPY",
++        strategy_curve,
++        starting_equity=100_000,
++        risk_free_rate=0.0,
++    )
++
++    returns = matched["daily_return"]
++
++    # Only the session AFTER the exposed close should move.
++    assert returns.iloc[best_day] == pytest.approx(0.0, abs=1e-12)
++    assert returns.iloc[best_day + 1] != pytest.approx(0.0, abs=1e-12)
++
++
++def test_alpha_carries_a_t_statistic_and_interval():
++    bars = _bars()
++    sessions = _sessions(bars)
++
++    hold = build_benchmark_curve(
++        bars, "SPY", starting_equity=100_000, sessions=sessions
++    )
++    blend = build_static_blend_curve(
++        bars,
++        "SPY",
++        starting_equity=100_000,
++        weight=0.4,
++        sessions=sessions,
++    )
++
++    comparison = compare_to_benchmark(blend, hold)
++
++    for key in (
++        "alpha_t_stat",
++        "alpha_standard_error",
++        "alpha_ci_low",
++        "alpha_ci_high",
++        "residual_volatility",
++        "alpha_significant_at_05",
++    ):
++        assert key in comparison
++
++    # A constant-weight blend has no skill, so alpha must be noise.
++    assert not comparison["alpha_significant_at_05"]
++    assert abs(comparison["alpha_t_stat"]) < 1.96
++    assert comparison["alpha_ci_low"] < 0 < comparison["alpha_ci_high"]
++
++
++def test_invalid_weight_is_rejected():
++    bars = _bars()
++    sessions = _sessions(bars)
++
++    with pytest.raises(ValueError, match="weight must be between"):
++        build_static_blend_curve(
++            bars,
++            "SPY",
++            starting_equity=100_000,
++            weight=1.5,
++            sessions=sessions,
++        )

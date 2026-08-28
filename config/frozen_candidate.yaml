@@ -1,6 +1,10 @@
 strategy:
   name: "sma_crossover"
-  status: "validation_passed"
+  status: "REJECTED"
+  rejected: "2026-08-28"
+  # See DECISIONS.md. Alpha t=0.29; beaten by a static
+  # 40% index / 60% cash blend on every metric. Retained
+  # only as a regression fixture. Do not promote.
 
 universe:
   symbols:
