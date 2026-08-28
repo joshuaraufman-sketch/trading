@@ -150,6 +150,7 @@ def update_entry_fill(
     status: str,
     filled_qty: float,
     filled_avg_price: float | None,
+    filled_at_utc: str | None = None,
     trade_dir: str | Path = TRADE_DIR,
 ) -> Path:
     if filled_qty < 0:
@@ -180,7 +181,9 @@ def update_entry_fill(
         and filled_avg_price is not None
     ):
         record["entry"]["filled_at_utc"] = (
-            _now_utc()
+            filled_at_utc
+            if filled_at_utc is not None
+            else _now_utc()
         )
         record["status"] = "open"
 

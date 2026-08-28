@@ -52,6 +52,12 @@ def main():
         else 0.0
     )
 
+    filled_at_utc = (
+        order.filled_at.isoformat()
+        if order.filled_at is not None
+        else None
+    )
+
     result = reconcile_fill(
         order_id=str(order.id),
         symbol=str(order.symbol),
@@ -67,6 +73,7 @@ def main():
             status=str(order.status),
             filled_qty=filled_qty,
             filled_avg_price=filled_avg_price,
+            filled_at_utc=filled_at_utc,
         )
     except FileNotFoundError:
         lifecycle_path = None

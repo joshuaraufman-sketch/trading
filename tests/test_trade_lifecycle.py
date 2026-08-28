@@ -135,3 +135,43 @@ def test_duplicate_trade_is_blocked(
 
     with pytest.raises(FileExistsError):
         create_trade_record(**kwargs)
+
+
+def test_entry_fill_preserves_actual_fill_time(
+    tmp_path,
+):
+    create_trade_record(
+        entry_order_id="order-time",
+        symbol="SPY",
+        strategy_name="sma_crossover",
+        signal_date="2026-08-27",
+        signal_time="test",
+        reference_price=100.0,
+        quantity=10,
+        planned_stop_price=98.0,
+        holding_days=10,
+        trade_dir=tmp_path,
+    )
+
+    actual_fill_time = (
+        "2026-08-28T13:31:04+00:00"
+    )
+
+    update_entry_fill(
+        entry_order_id="order-time",
+        status="filled",
+        filled_qty=10,
+        filled_avg_price=100.0,
+        filled_at_utc=actual_fill_time,
+        trade_dir=tmp_path,
+    )
+
+    record = load_trade_record(
+        "order-time",
+        trade_dir=tmp_path,
+    )
+
+    assert (
+        record["entry"]["filled_at_utc"]
+        == actual_fill_time
+    )
