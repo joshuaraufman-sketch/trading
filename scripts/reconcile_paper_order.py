@@ -4,6 +4,7 @@ import argparse
 
 from trading_lab.execution.alpaca_orders import get_paper_order
 from trading_lab.execution.reconciliation import reconcile_fill
+from trading_lab.execution.trade_lifecycle import update_entry_fill
 
 
 def parse_args():
@@ -60,11 +61,32 @@ def main():
         filled_qty=filled_qty,
     )
 
+    try:
+        lifecycle_path = update_entry_fill(
+            entry_order_id=str(order.id),
+            status=str(order.status),
+            filled_qty=filled_qty,
+            filled_avg_price=filled_avg_price,
+        )
+    except FileNotFoundError:
+        lifecycle_path = None
+
     print("PAPER ORDER RECONCILIATION")
     print("--------------------------")
     print(f"order id: {result.order_id}")
     print(f"symbol: {result.symbol}")
     print(f"status: {result.status}")
+
+    if lifecycle_path is not None:
+        print(
+            f"lifecycle record updated: "
+            f"{lifecycle_path}"
+        )
+    else:
+        print(
+            "lifecycle record: not found "
+            "(legacy/untracked order)"
+        )
     print(
         f"reference price: "
         f"${result.reference_price:,.4f}"

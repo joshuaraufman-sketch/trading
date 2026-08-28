@@ -14,6 +14,7 @@ from trading_lab.execution.pending_signals import (
     mark_signal_processed,
 )
 from trading_lab.execution.planner import build_long_order_plan
+from trading_lab.execution.trade_lifecycle import create_trade_record
 from trading_lab.risk.daily_order_limit import check_daily_order_limit
 from trading_lab.risk.entry_window import check_next_open_entry_window
 from trading_lab.risk.exposure_checks import check_existing_exposure
@@ -284,6 +285,10 @@ def main():
             parameters["risk_pct"]
         )
 
+        holding_days = int(
+            parameters["holding_days"]
+        )
+
         order = build_long_order_plan(
             symbol=symbol,
             signal_time=signal[
@@ -357,8 +362,32 @@ def main():
             ),
         )
 
+        trade_path = create_trade_record(
+            entry_order_id=str(response.id),
+            symbol=symbol,
+            strategy_name=signal[
+                "strategy_name"
+            ],
+            signal_date=signal[
+                "signal_date"
+            ],
+            signal_time=signal[
+                "signal_time"
+            ],
+            reference_price=current_price,
+            quantity=float(order.quantity),
+            planned_stop_price=float(
+                order.stop_price
+            ),
+            holding_days=holding_days,
+        )
+
         print(
             "action: PAPER ORDER SUBMITTED"
+        )
+        print(
+            f"trade lifecycle record: "
+            f"{trade_path}"
         )
         print(
             f"order id: "

@@ -36,3 +36,6 @@ reports/generated/
 
 # Runtime paper-trading state
 reports/pending_signals/
+
+# Runtime forward-trade state
+reports/forward_trades/
