@@ -41,13 +41,12 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import math
+
 import numpy as np
+import pandas as pd
 import yaml
 
-from trading_lab.backtest.benchmark import build_exposure_matched_curve
-from trading_lab.backtest.equity import build_daily_equity_curve
-from trading_lab.backtest.performance import calculate_performance
-from trading_lab.backtest.runner import run_long_signal_backtest
 from trading_lab.data.alpaca import get_daily_bars
 from trading_lab.data.split import (
     get_development_data,
@@ -55,10 +54,12 @@ from trading_lab.data.split import (
     get_validation_data,
 )
 from trading_lab.strategies.sma_crossover import SMACrossoverStrategy
-from trading_lab.validation.significance import (
-    permute_signals,
-    summarize_against_null,
+from trading_lab.validation import sweep_grid
+from trading_lab.validation.permutation import (
+    evaluate_schedule,
+    evaluate_sweep,
 )
+from trading_lab.validation.significance import summarize_against_null
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -89,72 +90,6 @@ def select_split(df, split: str, candidate: dict):
     raise ValueError(f"Unknown split: {split!r}")
 
 
-def evaluate_schedule(
-    signal_df,
-    bars,
-    *,
-    execution: dict,
-    params: dict,
-    risk_free_rate: float,
-) -> dict:
-    """
-    Run one backtest and return both Sharpe figures plus exposure.
-
-    Returns NaN metrics when a permutation produces no trades, which
-    happens occasionally and must not be silently counted as zero.
-    """
-
-    trades = run_long_signal_backtest(
-        signal_df,
-        starting_equity=float(execution["starting_equity"]),
-        risk_pct=float(execution["risk_pct"]),
-        stop_loss_pct=float(params["stop_loss_pct"]),
-        holding_days=int(params["holding_days"]),
-        slippage_bps=float(execution["slippage_bps"]),
-        fee_per_share=float(execution["fee_per_share"]),
-    )
-
-    if not trades:
-        return {
-            "strategy": float("nan"),
-            "exposure_matched": float("nan"),
-            "average_exposure": float("nan"),
-            "trades": 0,
-        }
-
-    starting_equity = float(execution["starting_equity"])
-
-    strategy_curve = build_daily_equity_curve(
-        trades,
-        bars,
-        starting_equity=starting_equity,
-    )
-
-    matched_curve = build_exposure_matched_curve(
-        bars,
-        BENCHMARK_SYMBOL,
-        strategy_curve,
-        starting_equity=starting_equity,
-        risk_free_rate=risk_free_rate,
-    )
-
-    strategy_performance = calculate_performance(
-        strategy_curve,
-        risk_free_rate=risk_free_rate,
-    )
-    matched_performance = calculate_performance(
-        matched_curve,
-        risk_free_rate=risk_free_rate,
-    )
-
-    return {
-        "strategy": strategy_performance["sharpe"],
-        "exposure_matched": matched_performance["sharpe"],
-        "average_exposure": strategy_performance["average_exposure"],
-        "trades": len(trades),
-    }
-
-
 def _report(summary: dict, *, title: str) -> None:
     print()
     print(title)
@@ -175,6 +110,173 @@ def _report(summary: dict, *, title: str) -> None:
     )
 
 
+
+def run_resweep(
+    args,
+    *,
+    candidate: dict,
+    split_df,
+    execution: dict,
+    observed: dict,
+) -> None:
+    """
+    Selection-corrected permutation test.
+
+    Signals depend on sma_window, so each window's signal set is built
+    once up front and then permuted independently per permutation. The
+    other two parameters only affect the runner and are swept against an
+    already-permuted frame.
+    """
+
+    print()
+    print(f"PERMUTATION TEST (SELECTION-CORRECTED) - {args.split.upper()}")
+    print("=" * 66)
+    print(f"null method:        {args.method}")
+    print(f"permutations:       {args.permutations}")
+    print(f"grid size:          {sweep_grid.grid_size()} configurations")
+    print(f"backtests to run:   "
+          f"{args.permutations * sweep_grid.grid_size():,}")
+    print(f"risk-free rate:     {args.risk_free_rate:.2%}")
+
+    signal_frames = {
+        window: SMACrossoverStrategy(window=window).generate_signals(
+            split_df
+        )
+        for window in sweep_grid.SMA_WINDOWS
+    }
+
+    observed_sweep = evaluate_sweep(
+        signal_frames,
+        split_df,
+        execution=execution,
+        risk_free_rate=args.risk_free_rate,
+    )
+
+    print()
+    print("OBSERVED (real signals, full sweep)")
+    print("-" * 66)
+    print(f"{'best strategy Sharpe':<38}"
+          f"{observed_sweep['best_strategy']:>10.3f}")
+    print(f"{'best exposure-matched Sharpe':<38}"
+          f"{observed_sweep['best_exposure_matched']:>10.3f}")
+    print(f"{'profit-factor winner':<38}"
+          f"{str(observed_sweep['winning_config']):>10}")
+    print(f"{'  its exposure-matched Sharpe':<38}"
+          f"{observed_sweep['exposure_matched_at_pf_best']:>10.3f}")
+
+    rng = np.random.default_rng(args.seed)
+
+    keys = (
+        "best_strategy",
+        "best_exposure_matched",
+        "strategy_at_pf_best",
+        "exposure_matched_at_pf_best",
+    )
+    nulls: dict[str, list[float]] = {key: [] for key in keys}
+
+    started = time.time()
+
+    for index in range(args.permutations):
+        result = evaluate_sweep(
+            signal_frames,
+            split_df,
+            execution=execution,
+            risk_free_rate=args.risk_free_rate,
+            rng=rng,
+            permute_method=args.method,
+        )
+
+        for key in keys:
+            nulls[key].append(result[key])
+
+        done = index + 1
+
+        if done % 5 == 0 or done == args.permutations:
+            elapsed = time.time() - started
+            remaining = elapsed / done * (args.permutations - done)
+            print(
+                f"  {done}/{args.permutations}"
+                f"  ({elapsed / 60:.1f} min elapsed,"
+                f" ~{remaining / 60:.1f} min left)"
+            )
+
+    summaries = {}
+
+    titles = {
+        "best_strategy":
+            "BEST-OF-SWEEP STRATEGY SHARPE (strict correction)",
+        "best_exposure_matched":
+            "BEST-OF-SWEEP EXPOSURE-MATCHED SHARPE (strict correction)",
+        "strategy_at_pf_best":
+            "STRATEGY SHARPE AT PROFIT-FACTOR WINNER",
+        "exposure_matched_at_pf_best":
+            "EXPOSURE-MATCHED SHARPE AT PROFIT-FACTOR WINNER",
+    }
+
+    for key in keys:
+        summary = summarize_against_null(
+            observed_sweep[key],
+            nulls[key],
+            label=key,
+        )
+        summaries[key] = summary
+        _report(summary, title=titles[key])
+
+    print()
+    print("VERDICT")
+    print("=" * 66)
+
+    strict = summaries["best_exposure_matched"]
+
+    if strict["significant_at_05"]:
+        print(
+            "Survives correction for having selected the best of "
+            f"{sweep_grid.grid_size()} configurations. This is the "
+            "strongest null available in the repo."
+        )
+        print(
+            "Remaining caveats: one split, one market regime, and a "
+            "window containing a single bear market. Confirm on "
+            "validation data before building on it."
+        )
+    else:
+        print(
+            "Does NOT survive correction for selection bias. The "
+            "apparent timing skill is within what picking the best of "
+            f"{sweep_grid.grid_size()} configurations produces from "
+            "signals with no relationship to price."
+        )
+
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    path = REPORT_DIR / f"{stamp}_{args.split}_permutation_resweep.json"
+
+    with path.open("w", encoding="utf-8") as file:
+        json.dump(
+            {
+                "split": args.split,
+                "generated_utc": stamp,
+                "mode": "resweep",
+                "method": args.method,
+                "permutations": args.permutations,
+                "grid_size": sweep_grid.grid_size(),
+                "seed": args.seed,
+                "risk_free_rate": args.risk_free_rate,
+                "candidate": candidate,
+                "observed_single_config": observed,
+                "observed_sweep": observed_sweep,
+                "summaries": summaries,
+                "null_distributions": nulls,
+            },
+            file,
+            indent=2,
+            default=str,
+        )
+
+    print()
+    print(f"report saved: {path.relative_to(PROJECT_ROOT)}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -185,6 +287,17 @@ def main() -> None:
     parser.add_argument("--permutations", type=int, default=200)
     parser.add_argument("--risk-free-rate", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--resweep",
+        action="store_true",
+        help=(
+            "Re-run the entire parameter sweep inside every permutation "
+            "and take the best. This is the null that corrects for "
+            "having selected the winner from the grid. Costs roughly "
+            f"{sweep_grid.grid_size()}x the compute and is the only "
+            "version whose p-value accounts for selection bias."
+        ),
+    )
     parser.add_argument(
         "--method",
         default="circular_shift",
@@ -225,6 +338,16 @@ def main() -> None:
         params=params,
         risk_free_rate=args.risk_free_rate,
     )
+
+    if args.resweep:
+        run_resweep(
+            args,
+            candidate=candidate,
+            split_df=split_df,
+            execution=execution,
+            observed=observed,
+        )
+        return
 
     print()
     print(f"PERMUTATION TEST - {args.split.upper()}")

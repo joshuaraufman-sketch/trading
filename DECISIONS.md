@@ -8,6 +8,79 @@ Newest entries at the top.
 
 ---
 
+## 2026-08-28 — The signal beats random entry, and still loses to cash
+
+**Finding, development split, 200 circular-shift permutations:**
+
+```
+                          observed   null mean   percentile   p-value
+strategy Sharpe              0.360      -0.184        98.5%    0.0199
+exposure-matched Sharpe      0.827       0.458        95.5%    0.0498
+```
+
+**What is real:** randomly-timed schedules with identical signal
+frequency produce a *negative* mean Sharpe (-0.184). The real signal
+produces +0.360. The SMA crossover carries genuine information relative
+to entering at random, and the effect is large.
+
+**What that does not mean:** the strategy still fails all four gates in
+the performance report. It loses to buy-and-hold, to a static 40% index
+blend, and to its own exposure-matched null. Both facts hold at once —
+**the signal has information, but not enough to pay for its own trading
+costs and cash drag.** Better than random; worse than doing nothing.
+
+**Why the 0.827 is not evidence:**
+
+1. p = 0.0498 means exactly 9 of 200 permutations beat it. Ten would
+   give 0.0547 and a NO. One draw flips the verdict.
+2. Two metrics were tested. Bonferroni puts exposure-matched at 0.0996;
+   only the strategy-Sharpe result survives at 0.0398.
+3. The test held parameters fixed at the values selected as best-of-36
+   on this same data, so it does not correct for selection at all.
+   Estimating with `expected_maximum_sharpe`: the single-config null has
+   mean 0.458 and implied sd 0.223, giving an expected best-of-36 around
+   0.936 — **above the observed 0.827**. (Upper bound; the 36 configs
+   are correlated, so the true expectation is lower.)
+
+**Exposure confound checked and dismissed:** observed exposure 40.49% vs
+null 34.53%. Scaling exposure by a constant scales mean and standard
+deviation identically, so Sharpe is invariant to the level. The gap
+shows the null trades a different pattern, not that the result is
+inflated.
+
+**Do not use this to revive sma_crossover.** It remains rejected.
+
+## 2026-08-28 — Selection-corrected permutation testing added
+
+**Decision:** `run_permutation_test.py --resweep` re-runs the entire
+36-configuration sweep inside every permutation and takes the best. The
+grid moved to `validation/sweep_grid.py` so the sweep and the correction
+cannot drift apart. Evaluation primitives moved to
+`validation/permutation.py` so they are testable without importing the
+data layer.
+
+**Reasoning:** the fixed-parameter permutation test asks "given these
+parameters, is the timing special?" when the parameters were themselves
+chosen as the best of 36 on this data. `build_null_distribution`'s
+docstring always said the evaluate callable should run the entire
+selection procedure; the first version did not. That biased toward
+finding significance.
+
+**Two selection rules are reported**, because they answer different
+questions:
+
+- `best_*` — the highest value any of the 36 could reach. Strict
+  data-snooping bound.
+- `*_at_pf_best` — the metric of whichever configuration won on profit
+  factor. Faithful to how the candidate was actually chosen, weaker as
+  a correction.
+
+**Cost:** ~36x. Roughly 35 minutes at 100 permutations, 70 at 200.
+
+**Open:** the correction still assumes the 36-point grid was the whole
+search. Every strategy variant considered and discarded by hand is an
+additional untracked trial. Future work should log those too.
+
 ## 2026-08-28 — sma_crossover is DEAD. Do not resurrect it.
 
 **Decision:** The `sma_crossover` candidate (SMA 10 / hold 10 / stop 2%

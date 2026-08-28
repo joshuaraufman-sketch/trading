@@ -9,6 +9,7 @@ from trading_lab.backtest.runner import run_long_signal_backtest
 from trading_lab.data.alpaca import get_daily_bars
 from trading_lab.data.split import get_development_data
 from trading_lab.strategies.sma_crossover import SMACrossoverStrategy
+from trading_lab.validation import sweep_grid
 from trading_lab.validation.experiment_log import save_experiment
 from trading_lab.validation.research_rules import evaluate_research_rules
 
@@ -20,9 +21,11 @@ RISK_PCT = 0.005
 SLIPPAGE_BPS = 5
 FEE_PER_SHARE = 0.005
 
-SMA_WINDOWS = [10, 20, 40, 60]
-HOLDING_DAYS_OPTIONS = [3, 5, 10]
-STOP_LOSS_OPTIONS = [0.015, 0.02, 0.03]
+# Grid lives in trading_lab.validation.sweep_grid so the permutation
+# test corrects for exactly the configurations swept here.
+SMA_WINDOWS = list(sweep_grid.SMA_WINDOWS)
+HOLDING_DAYS_OPTIONS = list(sweep_grid.HOLDING_DAYS_OPTIONS)
+STOP_LOSS_OPTIONS = list(sweep_grid.STOP_LOSS_OPTIONS)
 
 
 def main():
