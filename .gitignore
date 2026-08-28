@@ -39,3 +39,6 @@ reports/pending_signals/
 
 # Runtime forward-trade state
 reports/forward_trades/
+
+# Generated performance reports
+reports/performance/
