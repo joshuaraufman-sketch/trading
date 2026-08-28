@@ -33,3 +33,6 @@ reports/generated/
 
 # Logs
 *.log
+
+# Runtime paper-trading state
+reports/pending_signals/
