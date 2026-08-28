@@ -5,6 +5,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from trading_lab.execution.exit_schedule import (
+    calculate_planned_exit_date,
+)
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 TRADE_DIR = PROJECT_ROOT / "reports" / "forward_trades"
@@ -98,6 +102,7 @@ def create_trade_record(
             planned_stop_price
         ),
         "holding_days": holding_days,
+        "planned_exit_date": None,
         "entry": {
             "status": "submitted",
             "filled_qty": 0.0,
@@ -180,10 +185,27 @@ def update_entry_fill(
         filled_qty > 0
         and filled_avg_price is not None
     ):
-        record["entry"]["filled_at_utc"] = (
+        actual_fill_time = (
             filled_at_utc
             if filled_at_utc is not None
             else _now_utc()
+        )
+
+        record["entry"]["filled_at_utc"] = (
+            actual_fill_time
+        )
+
+        planned_exit_date = (
+            calculate_planned_exit_date(
+                filled_at_utc=actual_fill_time,
+                holding_days=int(
+                    record["holding_days"]
+                ),
+            )
+        )
+
+        record["planned_exit_date"] = (
+            planned_exit_date.isoformat()
         )
         record["status"] = "open"
 

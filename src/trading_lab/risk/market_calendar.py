@@ -81,3 +81,26 @@ def check_is_next_trading_session(
             "Next trading session check passed."
         ),
     )
+
+def advance_trading_days(
+    day: date,
+    sessions: int,
+) -> date:
+    """
+    Advance by a number of subsequent U.S.
+    trading sessions.
+
+    The starting day is not counted.
+    """
+
+    if sessions < 0:
+        raise ValueError(
+            "sessions cannot be negative"
+        )
+
+    result = day
+
+    for _ in range(sessions):
+        result = next_trading_day(result)
+
+    return result

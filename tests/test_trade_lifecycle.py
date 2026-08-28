@@ -175,3 +175,8 @@ def test_entry_fill_preserves_actual_fill_time(
         record["entry"]["filled_at_utc"]
         == actual_fill_time
     )
+
+    assert (
+        record["planned_exit_date"]
+        == "2026-09-14"
+    )
