@@ -16,6 +16,7 @@ import yaml
 from trading_lab.execution.alpaca_account import AccountState
 from trading_lab.execution.preflight import (
     AccountExpectations,
+    normalize_status,
     run_preflight,
 )
 
@@ -124,6 +125,34 @@ def test_positions_inside_universe_are_fine():
     )
 
     assert run_preflight(held, _expect()).passed
+
+
+def test_stringified_enum_status_still_passes():
+    """
+    Regression. alpaca-py returns an enum whose str() is
+    "AccountStatus.ACTIVE", and the first version of this check compared
+    it against "ACTIVE" and failed on a perfectly healthy account.
+
+    A safety check that cries wolf on good input gets disabled, so this
+    class of false positive is worse than a missing check.
+    """
+
+    for form in ("ACTIVE", "AccountStatus.ACTIVE", "active"):
+        result = run_preflight(_state(status=form), _expect())
+        assert result.passed, f"healthy account rejected for {form!r}"
+
+
+def test_normalize_status_handles_both_forms():
+    assert normalize_status("AccountStatus.ACTIVE") == "ACTIVE"
+    assert normalize_status("ACTIVE") == "ACTIVE"
+    assert normalize_status("") == ""
+    assert normalize_status(None) == ""
+
+
+def test_inactive_status_is_still_caught_in_enum_form():
+    assert not run_preflight(
+        _state(status="AccountStatus.ACCOUNT_CLOSED"), _expect()
+    ).passed
 
 
 def test_blocked_trading_and_inactive_status_are_fatal():

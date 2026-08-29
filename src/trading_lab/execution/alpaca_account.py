@@ -27,6 +27,24 @@ class AccountState:
     is_paper: bool = True
 
 
+
+def _enum_value(value) -> str:
+    """
+    Render an SDK enum as its bare value.
+
+    ``str()`` on an alpaca-py enum yields "AccountStatus.ACTIVE", not
+    "ACTIVE". Comparing that against expected values fails on a
+    perfectly healthy account -- which is the worst kind of safety-check
+    bug, because a check that cries wolf on good input teaches people to
+    ignore it.
+    """
+
+    if value is None:
+        return ""
+
+    return str(getattr(value, "value", value) or "")
+
+
 def _get_trading_client() -> TradingClient:
     api_key = os.getenv("ALPACA_API_KEY")
     secret_key = os.getenv("ALPACA_SECRET_KEY")
@@ -102,7 +120,7 @@ def get_account_state() -> AccountState:
         # replaced.
         account_id=str(getattr(account, "id", "") or ""),
         account_number=str(getattr(account, "account_number", "") or ""),
-        status=str(getattr(account, "status", "") or ""),
+        status=_enum_value(getattr(account, "status", "")),
         pattern_day_trader=bool(
             getattr(account, "pattern_day_trader", False)
         ),

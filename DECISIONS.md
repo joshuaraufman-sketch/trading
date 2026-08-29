@@ -8,6 +8,33 @@ Newest entries at the top.
 
 ---
 
+## 2026-08-28 — Preflight false positive: enum stringification
+
+**Bug:** `run_preflight` rejected a perfectly healthy account. alpaca-py
+returns `account.status` as an enum whose `str()` is
+`"AccountStatus.ACTIVE"`, and the check compared it against `"ACTIVE"`.
+
+**Why this class of bug matters more than a missing check.** A safety
+check that fails on good input gets disabled by whoever has to run it
+every day. False positives are more corrosive than false negatives here,
+because they destroy the habit the check depends on.
+
+**Fixed in two places deliberately.** `alpaca_account._enum_value`
+unwraps enums at the source, and `preflight.normalize_status` strips any
+enum prefix at the check. Redundant on purpose: a future SDK field
+arriving in enum form should not reproduce this.
+
+**Regression tests** cover "ACTIVE", "AccountStatus.ACTIVE" and "active"
+all passing, plus "AccountStatus.ACCOUNT_CLOSED" still failing — the fix
+must not simply make the check permissive.
+
+**Observed on the new paper account:** equity $500,000, buying power
+$2,000,000 (4x margin available). The `max_gross_exposure: 1.00` policy
+is what keeps that unused. Note the paper account is 5x the $100,000 the
+backtests assume; the strategy sizes by percentage so results scale, but
+forward-test dollar figures will not be comparable to backtest ones
+without normalizing.
+
 ## 2026-08-28 — Paper account replaced; identity now pinned
 
 **What happened:** Alpaca offers no paper-account reset, so a new paper

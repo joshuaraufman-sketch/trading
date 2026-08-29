@@ -86,6 +86,23 @@ class AccountExpectations:
         return cls(**payload)
 
 
+
+def normalize_status(value: str) -> str:
+    """
+    Reduce "AccountStatus.ACTIVE" or "ACTIVE" to "ACTIVE".
+
+    Applied at the check rather than trusting the caller, so a raw
+    stringified enum from anywhere still compares correctly.
+    """
+
+    text = str(value or "").strip()
+
+    if "." in text:
+        text = text.rsplit(".", 1)[-1]
+
+    return text.upper()
+
+
 def run_preflight(
     state: AccountState,
     expectations: AccountExpectations,
@@ -120,11 +137,17 @@ def run_preflight(
         )
     )
 
+    # Normalized defensively: alpaca-py enums stringify as
+    # "AccountStatus.ACTIVE", and any future field could arrive the same
+    # way. Belt and braces is appropriate for a check whose false
+    # positives train people to skip it.
+    status = normalize_status(state.status)
+
     result.checks.append(
         CheckResult(
             "account active",
-            passed=state.status.upper() in {"ACTIVE", ""},
-            detail=f"status: {state.status or 'unknown'}",
+            passed=status in {"ACTIVE", ""},
+            detail=f"status: {status or 'unknown'}",
         )
     )
 

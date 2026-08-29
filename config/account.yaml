@@ -19,3 +19,4 @@ minimum_equity: 1000.0
 
 require_paper: true
 allow_open_orders: false
+expected_account_id: "69b01b31-aa3d-475d-8b2c-fd14f6d206d7"
