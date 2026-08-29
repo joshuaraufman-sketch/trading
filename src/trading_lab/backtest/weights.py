@@ -26,6 +26,11 @@ from __future__ import annotations
 
 import pandas as pd
 
+from trading_lab.execution.rebalance import (
+    ExecutionPolicy,
+    compute_rebalance_orders,
+)
+
 
 TRADING_DAYS_PER_YEAR = 252
 
@@ -198,3 +203,150 @@ def turnover_summary(curve: pd.DataFrame) -> dict:
         "sessions_traded": int((curve["turnover"] > 0).sum()),
         "sessions": sessions,
     }
+
+def run_policy_backtest(
+    returns: pd.DataFrame | pd.Series,
+    prices: pd.DataFrame | pd.Series,
+    target_weights: pd.DataFrame | pd.Series,
+    *,
+    starting_equity: float,
+    policy: ExecutionPolicy,
+    cost_bps: float = 5.0,
+    risk_free_rate: float = 0.0,
+) -> pd.DataFrame:
+    """
+    Backtest a weight schedule through the LIVE order path.
+
+    Identical to ``run_weight_backtest`` except that every session's
+    trades are produced by ``compute_rebalance_orders`` -- the same
+    function the live runner calls. Position caps, minimum notionals,
+    the rebalance band, share rounding and the per-session order cap all
+    apply exactly as they will in production.
+
+    Use this, not ``run_weight_backtest``, for any result that is meant
+    to predict live behaviour. ``run_weight_backtest`` remains useful
+    for pure research questions where execution frictions are not the
+    subject, but its numbers are an upper bound.
+
+    Skipped orders are counted and returned so the gap between intended
+    and achieved exposure is visible rather than inferred.
+    """
+
+    if isinstance(returns, pd.Series):
+        returns = returns.to_frame(name=returns.name or "asset")
+
+    if isinstance(prices, pd.Series):
+        prices = prices.to_frame(name=prices.name or returns.columns[0])
+
+    if isinstance(target_weights, pd.Series):
+        target_weights = target_weights.to_frame(
+            name=target_weights.name or returns.columns[0]
+        )
+
+    sessions = returns.index
+
+    if not sessions.is_monotonic_increasing:
+        raise ValueError("returns must be sorted by session")
+
+    weights = (
+        target_weights
+        .reindex(index=sessions, columns=returns.columns)
+        .fillna(0.0)
+        .astype(float)
+    )
+
+    # Same lag as run_weight_backtest: a weight known at the close of
+    # t-1 is what can be held into session t.
+    intended = weights.shift(1).fillna(0.0)
+    prices = prices.reindex(index=sessions, columns=returns.columns).ffill()
+
+    rf_daily = _daily_rate(risk_free_rate)
+    cost_rate = cost_bps / 10_000.0
+
+    equity = starting_equity
+    quantities = {symbol: 0.0 for symbol in returns.columns}
+
+    records = []
+
+    for session in sessions:
+        session_prices = {
+            symbol: float(prices.loc[session, symbol])
+            for symbol in returns.columns
+            if pd.notna(prices.loc[session, symbol])
+        }
+
+        plan = compute_rebalance_orders(
+            target_weights={
+                symbol: float(intended.loc[session, symbol])
+                for symbol in returns.columns
+            },
+            current_quantities=dict(quantities),
+            prices=session_prices,
+            equity=equity,
+            policy=policy,
+        )
+
+        turnover_notional = 0.0
+
+        for order in plan.orders:
+            signed = (
+                order.quantity if order.side == "buy" else -order.quantity
+            )
+            quantities[order.symbol] = (
+                quantities.get(order.symbol, 0.0) + signed
+            )
+            turnover_notional += order.notional
+
+        cost = turnover_notional / equity * cost_rate if equity > 0 else 0.0
+
+        invested_value = sum(
+            quantities.get(symbol, 0.0) * session_prices.get(symbol, 0.0)
+            for symbol in returns.columns
+        )
+        cash = equity - invested_value
+
+        gross = sum(
+            quantities.get(symbol, 0.0)
+            * session_prices.get(symbol, 0.0)
+            * float(returns.loc[session, symbol] or 0.0)
+            for symbol in returns.columns
+        )
+
+        pnl = gross + cash * rf_daily - cost * equity
+        previous_equity = equity
+        equity += pnl
+
+        records.append(
+            {
+                "session": session,
+                "equity": equity,
+                "daily_return": (
+                    pnl / previous_equity if previous_equity > 0 else 0.0
+                ),
+                "exposure_pct": (
+                    invested_value / previous_equity
+                    if previous_equity > 0
+                    else 0.0
+                ),
+                "turnover": (
+                    turnover_notional / previous_equity
+                    if previous_equity > 0
+                    else 0.0
+                ),
+                "cost": cost,
+                "orders": len(plan.orders),
+                "skipped": len(plan.skipped),
+                "open_positions": int(
+                    sum(1 for q in quantities.values() if abs(q) > 1e-9)
+                ),
+            }
+        )
+
+    curve = pd.DataFrame(records).set_index("session")
+    curve["running_peak"] = curve["equity"].cummax()
+    curve["drawdown_pct"] = (
+        curve["equity"] - curve["running_peak"]
+    ) / curve["running_peak"]
+
+    return curve
+

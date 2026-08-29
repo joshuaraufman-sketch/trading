@@ -1,0 +1,35 @@
+# Single source of truth for execution constraints.
+#
+# Both the backtest and the live runner load this file. A constraint
+# that exists in only one of them means the backtest is measuring a
+# different strategy than the one that will trade.
+#
+# Current values reflect the validated volatility-targeting baseline:
+# a single-instrument, long-only, unlevered schedule averaging ~72%
+# exposure and rebalancing on roughly 11% of sessions.
+
+# Largest weight in any one instrument, as a fraction of equity.
+# 1.00 permits a full position. The old discrete-trade layer used 0.25,
+# which would have blocked the validated strategy entirely.
+max_position_pct: 1.00
+
+# Total absolute exposure across all instruments.
+# Anything above 1.00 is LEVERAGE and requires margin. Deliberately
+# left at 1.00: see DECISIONS.md for why leverage is the last thing
+# added, not the first.
+max_gross_exposure: 1.00
+
+# Skip orders smaller than this. Prevents churning on rounding.
+min_order_notional: 100.0
+
+# Do not trade unless the weight has drifted more than this. Must match
+# the band used in research or the live turnover will not match the
+# backtest.
+rebalance_band: 0.05
+
+allow_short: false
+allow_fractional_shares: true
+
+# Cap on orders per session. Ten is generous for a single-instrument
+# strategy and leaves room for a modest cross-sectional book later.
+max_orders_per_session: 10

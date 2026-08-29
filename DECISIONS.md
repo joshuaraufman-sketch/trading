@@ -8,6 +8,82 @@ Newest entries at the top.
 
 ---
 
+## 2026-08-28 — Goal clarified, and the execution layer was blocking it
+
+**Goal on record:** semi-passive income. A system that runs during
+market hours without CONSTANT monitoring — evening checks and failure
+alerts are expected and fine. Path C chosen: ship the volatility-target
+baseline, research edge behind it.
+
+**Uncomfortable arithmetic that must not be forgotten.** Volatility
+targeting made LESS money than buy-and-hold out of sample: 9.77% CAGR
+against 14.55%, with a third of the drawdown. De-risk-only targeting
+cannot outperform on absolute return by construction. The product is
+most of the return with a third of the pain, plus the behavioural
+benefit that an 11% drawdown does not make people sell at the bottom
+while a 34% one does. **It is not alpha and must never be described as
+such.**
+
+**Tax interaction, unresolved.** 2.69x annual turnover realizes
+short-term gains taxed as ordinary income. That drag is plausibly the
+same magnitude as the entire (statistically unestablished) advantage.
+Both taxable and IRA accounts are available. The IRA removes the drag
+entirely but prohibits margin. Add after-tax comparison to the
+performance report before deciding.
+
+**Leverage: not yet, and the reason is specific.** The out-of-sample
+Sharpe gap was 0.047 against a standard error near 0.59. If the true
+edge is zero, leverage amplifies identical returns and identical risk
+while paying margin interest — it costs money precisely when you are
+wrong. Revisit only after (1) a quarter of unattended paper running
+clean, (2) live unlevered through a real drawdown, (3) the advantage
+holding on data that is not 2017-2022. Start at 1.2-1.3x if ever, not
+1.95x. Vol targeting's self-de-levering is a genuine argument in its
+favour; it is not sufficient.
+
+## 2026-08-28 — Backtest/live parity fixed architecturally
+
+**What was found:** the live risk layer structurally PROHIBITED the
+strategy that passed validation. `check_order_plan` requires
+`side == "buy"`, requires a positive `stop_price`, and caps positions at
+25% of equity. Volatility targeting averages 72% exposure and reduces
+itself by SELLING. Not one of its orders could have been placed. The
+risk layer was built for discrete stop-managed trades; a continuous
+weight is a different shape entirely.
+
+**Rejected fix:** make the backtest imitate the live constraints. Two
+descriptions of one system drift the moment either changes — exactly how
+the sweep grid and `research_rules.yaml` drifted before.
+
+**Adopted fix:** one function, `execution/rebalance.py`
+`compute_rebalance_orders`, answering "given target weights, current
+positions, prices and equity, what orders?" The backtest calls it every
+session via `run_policy_backtest`; the live runner will call it once a
+day. **Parity is a property of the architecture, not an assertion.**
+
+`config/execution_policy.yaml` is the single source of truth for
+constraints, and a test asserts its keys match the dataclass exactly —
+guarding against the `research_rules.yaml` failure where a config file's
+keys were read by nothing.
+
+**Design choices worth remembering:**
+
+- Gross exposure is enforced by SCALING the book, not truncating.
+  Truncation would silently change which instrument dominates.
+- Skipped orders record a reason. An unexplained gap between intended
+  and achieved exposure is how live diverges from backtest unnoticed.
+- When more orders qualify than the session cap allows, the largest by
+  notional are kept. Dictionary-order truncation would make live results
+  depend on iteration order and be unreproducible in backtest.
+- A symbol dropped from the target set is SOLD, not forgotten.
+- `max_gross_exposure: 1.00` is where leverage would be switched on. It
+  is one line, deliberately, so enabling it is an explicit recorded act.
+
+**Use `run_policy_backtest` for anything meant to predict live
+behaviour.** `run_weight_backtest` remains valid for research questions
+where execution friction is not the subject, but its numbers are an
+upper bound.
+
 ## 2026-08-28 — Volatility targeting survives walk-forward. Baseline established.
 
 **Layers 4 and 5, development split:**
