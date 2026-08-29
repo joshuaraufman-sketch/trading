@@ -8,6 +8,99 @@ Newest entries at the top.
 
 ---
 
+## 2026-08-28 — Selection correction run: nothing survives
+
+**Result, development split, 100 permutations, full 36-config re-sweep
+inside every permutation (3,600 backtests, 31 minutes):**
+
+```
+metric                          obs     null    pct        p    p x4
+best-of-sweep strategy        0.360    0.076    94%   0.0693   0.277
+best-of-sweep exposure-match  1.025    0.909    75%   0.2574   1.030
+strategy @ PF winner          0.327   -0.145    93%   0.0792   0.317
+exposure-match @ PF winner    1.025    0.750    86%   0.1485   0.594
+```
+
+**Nothing is significant.** Smallest p is 0.0693; Bonferroni across the
+four metrics gives 0.277. The earlier uncorrected result of p = 0.0199
+on strategy Sharpe degrades to 0.0792 once selection is accounted for.
+
+**The number worth keeping — selection bias, measured:**
+
+```
+exposure-matched Sharpe, null mean
+  fixed single config     0.458
+  best of 36 configs      0.909
+```
+
+**Choosing the best of 36 configurations adds +0.451 Sharpe out of pure
+noise.** No edge, no information, just picking the winner of a search.
+That gap is the entire reason the uncorrected test read p = 0.0498: the
+observed value was being raced against a null that was half a Sharpe
+point too low.
+
+**Practical discovery — the analytic bound works.** The closed-form
+`expected_maximum_sharpe` predicted a best-of-36 null of 0.936; the
+31-minute simulation measured 0.909. Three percent error. Screen with
+the analytic version in milliseconds and spend compute only when a
+result lands near the bound.
+
+**Independent confirmation of the undocumented selection.** The script's
+profit-factor winner is `{10, 10, 0.03}`, the top row of the original
+sweep ranking — not the `{10, 10, 0.02}` recorded in
+`frozen_candidate.yaml`. Selecting by the criterion the code actually
+ranks on yields a different configuration than was frozen.
+
+**Direction worth noting, not acting on.** All four observed values sit
+at the 75th percentile or above. That is what a small real effect looks
+like in an underpowered sample, and equally what noise looks like. Six
+years of daily data on four correlated ETFs cannot separate them. Do not
+attempt to resolve this on this split.
+
+## 2026-08-28 — Walk-forward rebuilt as actual walk-forward
+
+**Decision:** `scripts/run_walk_forward.py` was rewritten. Fold logic
+lives in `validation/walk_forward.py`, testable without price data or a
+backtest engine.
+
+**What was wrong:** the old script applied one already-selected
+parameter set to four fixed calendar windows, three of which were the
+same data those parameters were fitted on, and the fourth was the
+validation split. It could not detect overfitting because nothing about
+it was out-of-sample. Every number it ever produced was in-sample.
+
+**What it does now:** re-runs the entire 36-configuration sweep inside
+each training window, applies the winner to the following window that
+the selection never saw, and stitches those test windows into one
+continuous equity curve. That curve is the only one in the project built
+solely from decisions made before the data was seen. It is then put
+through the same benchmark gates the performance report uses.
+
+**Design choices worth remembering:**
+
+- Signals are generated once over the whole split and then sliced.
+  Generating inside each fold would leave the first `window` bars of
+  every fold without an SMA and silently drop early signals. This does
+  not leak: the SMA is strictly backward looking.
+- `--select-on` is explicit and defaults to Sharpe. The original sweep
+  ranked on profit factor while the candidate was chosen on net profit;
+  leaving the criterion implicit is how that extra degree of freedom
+  went unrecorded.
+- Anchored mode grows the training window; rolling keeps it fixed.
+  Anchored is the default.
+- Folds with no viable configuration contribute nothing rather than a
+  flat zero-return stretch, which would dampen measured volatility.
+- Overlapping test windows raise rather than being silently averaged.
+
+**Parameter stability is now reported.** Configurations that jump every
+retraining window indicate an unstable effect even when the aggregate
+out-of-sample curve looks acceptable. It is a gate, not a footnote.
+
+**Caveat on sample size:** at 504 training and 126 test sessions the
+development split yields roughly 7 folds of about 25 trades each. That
+is thin. Treat fold-level results as directional and only the stitched
+curve as measurable.
+
 ## 2026-08-28 — The signal beats random entry, and still loses to cash
 
 **Finding, development split, 200 circular-shift permutations:**
