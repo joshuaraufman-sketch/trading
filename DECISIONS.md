@@ -8,6 +8,55 @@ Newest entries at the top.
 
 ---
 
+## 2026-08-28 — Evening reconciliation, and a sell-side sign bug
+
+**Bug found while auditing `reconciliation.py`.** Its slippage
+convention assumed buys: "positive slippage means the buy filled worse."
+For a sell, filling ABOVE the reference price is BETTER. The module was
+written when the system could only enter long positions with stops.
+Volatility targeting reduces exposure by SELLING, so roughly half of all
+orders would have had their execution quality reported with the wrong
+sign — good sells logged as losses.
+
+Fixed: slippage is now signed so positive always means worse, on either
+side, and `side` is a required consideration rather than an assumption.
+This is a good example of a module that was correct for the strategy it
+was written for and silently wrong for the one that replaced it. Worth
+re-auditing the rest of `execution/` on the same basis.
+
+**New: `execution/position_check.py`.** Slippage is a diagnostic; the
+safety question is whether the account ended up where the plan intended.
+A rejected or partially filled order leaves the account holding
+something other than what the strategy decided, and nothing noticed.
+
+`reconcile_positions` compares intended against actual weights and
+classifies any gap:
+
+- within tolerance (2%, above typical overnight drift, below the 5%
+  rebalance band)
+- explained by a known order issue
+- unexplained, minor or major
+- unknown, when no price is available to value the position
+
+**Dry runs are not flagged.** A dry run leaves the account untouched by
+design; reporting that as a discrepancy every evening would train the
+reader to ignore the report. The same false-positive reasoning that
+applied to the preflight enum bug.
+
+**`classify_orders` treats a missing broker record as CRITICAL.** The
+system believing it submitted an order the broker has no trace of is the
+worst case, worse than an outright rejection, because the rejection at
+least leaves evidence.
+
+**Unexpected holdings are caught**, not ignored for being absent from
+the target set. That is the BUD/QQQM contamination check applied
+post-hoc rather than pre-flight.
+
+**`scripts/run_reconciliation.py` exits 1 when unclean**, so a scheduler
+can alert on it. It also refuses outright if the run log's account
+fingerprint does not match the current account — reconciling the wrong
+account would produce confident nonsense.
+
 ## 2026-08-28 — Run logs are public; everything is normalized
 
 **Correction to an earlier call.** `reports/daily_runs/` was initially
