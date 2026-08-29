@@ -40,5 +40,9 @@ reports/pending_signals/
 # Runtime forward-trade state
 reports/forward_trades/
 
-# Generated performance reports
+# Generated analysis output. DECISIONS.md is the durable record;
+# these are reproducible artifacts and should not be versioned.
 reports/performance/
+reports/significance/
+reports/walk_forward/
+reports/volatility_target/
