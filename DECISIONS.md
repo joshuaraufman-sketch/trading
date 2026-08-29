@@ -8,6 +8,53 @@ Newest entries at the top.
 
 ---
 
+## 2026-08-28 — Operational layer: scheduling, health, and a calendar landmine
+
+**Calendar bug found while wiring the scheduler.** `market_calendar.py`
+hardcoded 2026 holidays only. On 1 January 2027 every 2027 holiday would
+have been treated as a normal trading day — silently, with no error.
+
+Fixed with two defences rather than one. Coverage is now declared
+(`COVERED_YEARS`, 2026-2028) and `holidays_cover` reports when a date
+falls outside it, so the scheduler refuses rather than guesses. The
+daily runner's stale-bar check remains the backstop: on a holiday no new
+bar exists, so it would refuse anyway. Dates for 2027-2028 are computed
+from standard NYSE rules and should be verified against the exchange
+calendar before being relied on.
+
+**Three exit codes, deliberately distinct.**
+
+```
+0  healthy - acted, or correctly declined to act
+1  a run executed and something is wrong
+2  refused: not a trading day, before the close, coverage lapsed
+```
+
+Alert on 1 only. If a quiet weekend looked like a failure, the alerts
+would be muted within a fortnight and gone when they mattered. This is
+the same false-positive reasoning as the preflight enum bug and the
+dry-run reconciliation case — three instances now, which suggests it is
+the dominant failure mode for this kind of system.
+
+**`execution/health.py` catches the QUIET failure.** A run that fails is
+loud: exit 1, a health record, a printed reason. A scheduled task that
+STOPS RUNNING is silent — no logs, no errors, nothing to alert on,
+everything looks calm because nothing is happening. The only signal is
+the age of the last successful run.
+
+Staleness is measured in TRADING SESSIONS, not calendar days, so a
+weekend or holiday gap does not read as breakage. `consecutive_failures`
+accumulates so one transient blip reads differently from four in a row.
+
+**`scripts/check_health.py` is the evening glance.** One command, exit 0
+or 1. It is the only thing standing between a quietly dead scheduler and
+noticing three weeks later.
+
+**`OPERATIONS.md`** documents the daily rhythm, Task Scheduler setup,
+exit-code handling, and maintenance triggers. Weekend and holiday
+handling lives in code rather than the scheduler trigger, so the
+calendar has exactly one home.
+
 ## 2026-08-28 — Evening reconciliation, and a sell-side sign bug
 
 **Bug found while auditing `reconciliation.py`.** Its slippage
