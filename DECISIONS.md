@@ -8,6 +8,102 @@ Newest entries at the top.
 
 ---
 
+## 2026-08-28 — Volatility targeting survives walk-forward. Baseline established.
+
+**Layers 4 and 5, development split:**
+
+```
+LAYER 4  timing permutation   88th percentile, p = 0.1244
+                              turnover 21.3 observed vs 21.8 null (matched)
+LAYER 5  walk-forward         7 folds, lookback [20,20,10,10,10,20,20], 33% churn
+
+                        walk-fwd   buy & hold      gap
+Sharpe                     0.646        0.599    0.047
+CAGR                       9.77%       14.55%   -4.78%
+max drawdown              11.33%       33.79%  -22.46%
+Calmar                     0.862        0.431    0.431
+```
+
+**The comparison that settles the harness question:**
+
+```
+                    in-sample   out-of-sample   retained
+sma_crossover           0.360           0.112        31%
+volatility target       0.651           0.646        99%
+```
+
+`sma_crossover` lost 69% of its Sharpe out of sample -- fitted noise.
+Volatility targeting lost 1%. Two strategies, one pipeline, opposite
+verdicts, both correct. The harness is validated in both directions.
+
+**What is NOT established.** The out-of-sample Sharpe gap of 0.047
+against a standard error near 0.59 is nothing. It also shrank to a fifth
+of the in-sample gap (0.164), because 2019-2022 was a better window for
+simply holding than 2017-2022 was. Do not claim a Sharpe edge.
+
+**What IS durable.** A third of the drawdown and double the Calmar.
+That follows from the validated layer 2 -- if the volatility forecast
+works, drawdown reduction is nearly mechanical -- rather than from the
+return path cooperating. Most of the return with a third of the pain,
+and no demonstrable Sharpe edge. Not alpha. Calling it alpha would be
+the first dishonest thing in this project.
+
+**Layer 4 in context.** 88th percentile exceeds the 60th-77th that
+simulated data containing a KNOWN effect reached. Consistent with a real
+effect, cannot establish one. The power limit was measured before the
+run, which is the only reason the number is interpretable.
+
+**Stability gate lesson.** The lookback churned 33%, alternating between
+adjacent grid values 10 and 20. Mild. Meanwhile `sma_crossover` had 0%
+churn and was worthless. **Parameter stability is necessary but never
+sufficient**, and this gate would have passed a dead strategy while
+flagging a live one. Weight it accordingly.
+
+**Decision:** volatility targeting becomes a standing baseline. Any
+future candidate must beat it, not just buy-and-hold. It should be added
+as a column in the performance report.
+
+## 2026-08-28 — Universe expansion: survivorship bias must be designed for
+
+**Decision:** before any cross-sectional work, the universe layer must
+handle survivorship bias explicitly. This is recorded in advance because
+it silently inflates every cross-sectional backtest and is far easier to
+design around than to detect afterwards.
+
+**Why it has not mattered so far.** SPY, QQQ, IWM and DIA are ETFs that
+did not delist during the sample. There is no survivorship problem in
+the current universe, which is exactly why the trap is invisible today
+and will not be tomorrow.
+
+**The failure mode.** Asking a data provider for "S&P 500 constituents"
+returns TODAY's constituents. Backtesting those over 2017-2022 means
+trading a basket selected for having survived and performed well enough
+to remain in the index. Companies that went bankrupt, got acquired at a
+discount, or were removed for underperformance are simply absent. The
+effect is large, systematically positive, and completely invisible in
+the results -- the equity curve looks clean.
+
+**Requirement:** the universe must be point-in-time. On any given
+session the tradeable set is what was actually listed and liquid on that
+session, including names that later delisted. If point-in-time
+membership data is unavailable, the honest alternatives are to use a
+liquidity screen applied to the full listed universe as of each date, or
+to state plainly in every report that results carry survivorship bias
+and are therefore upper bounds.
+
+**Second trap: look-ahead in the liquidity screen.** Filtering on
+average dollar volume computed over the whole sample selects names that
+became liquid later. Screens must use trailing data only, on the same
+lag discipline already enforced in `weights.py` and the exposure-matched
+null.
+
+**Third trap: cross-sectional effective sample size.** Adding 300
+symbols does not give 300 independent bets. Equities share a dominant
+market factor. `effective_sample_size` in `significance.py` already
+measures this and must be reported for any cross-sectional result. The
+gain over the current universe is real but far smaller than the symbol
+count suggests.
+
 ## 2026-08-28 — Positive control PASSED. Harness validated end to end.
 
 **Volatility targeting, development split, SPY, target 10%, lookback 20,
