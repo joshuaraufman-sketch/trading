@@ -39,6 +39,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from trading_lab.backtest.benchmark import (
@@ -57,6 +58,16 @@ from trading_lab.data.split import (
     get_development_data,
     get_holdout_data,
     get_validation_data,
+)
+from trading_lab.validation.significance import (
+    permute_weight_schedule,
+    schedule_turnover,
+    summarize_against_null,
+)
+from trading_lab.validation.walk_forward import (
+    parameter_stability,
+    run_walk_forward,
+    stitch_out_of_sample,
 )
 from trading_lab.strategies.volatility_target import (
     volatility_capture,
@@ -112,6 +123,24 @@ def main() -> None:
              "reproduces full daily rebalancing.",
     )
     parser.add_argument("--risk-free-rate", type=float, default=0.0)
+    parser.add_argument(
+        "--permutations", type=int, default=0,
+        help=(
+            "Layer 4: circular-shift the weight schedule to test whether "
+            "its TIMING matters. Low statistical power by construction -- "
+            "see tests/test_weight_permutation.py. A non-significant "
+            "result here does not indicate absence of effect."
+        ),
+    )
+    parser.add_argument(
+        "--walk-forward", action="store_true",
+        help=(
+            "Layer 5: re-select the lookback in each training window and "
+            "apply it to the next. The better-powered stability test."
+        ),
+    )
+    parser.add_argument("--train-sessions", type=int, default=504)
+    parser.add_argument("--test-sessions", type=int, default=126)
     args = parser.parse_args()
 
     print(f"Loading {SYMBOL} bars...")
@@ -330,6 +359,157 @@ def main() -> None:
               "at a coding")
         print("fault in the weighting or backtest path, not a market "
               "fact.")
+
+
+    # ---------------- LAYER 4: does the timing matter? ----------------
+    if args.permutations > 0:
+        valid = weights.iloc[args.lookback:]
+        aligned = returns.loc[valid.index]
+
+        def schedule_sharpe(schedule):
+            c = run_weight_backtest(
+                aligned, schedule, starting_equity=starting_equity,
+                cost_bps=args.cost_bps,
+                rebalance_band=args.rebalance_band,
+                risk_free_rate=args.risk_free_rate,
+            )
+            return calculate_performance(
+                c, risk_free_rate=args.risk_free_rate
+            )["sharpe"]
+
+        observed_sharpe = schedule_sharpe(valid)
+        rng = np.random.default_rng(0)
+
+        null, null_turnover = [], []
+
+        for _ in range(args.permutations):
+            shifted = permute_weight_schedule(
+                valid, rng=rng, method="circular_shift"
+            )
+            null.append(schedule_sharpe(shifted))
+            null_turnover.append(schedule_turnover(shifted))
+
+        summary = summarize_against_null(observed_sharpe, null)
+
+        print()
+        print("LAYER 4 - DOES THE TIMING MATTER?")
+        print("=" * 72)
+        print("Circular-shifted schedules keep the identical path shape,")
+        print("and therefore identical turnover. Only their placement in")
+        print("time changes.")
+        print()
+        print(f"{'observed Sharpe':<38}{summary['observed']:>10.3f}")
+        print(f"{'null mean':<38}{summary['null_mean']:>10.3f}")
+        print(f"{'null 95th percentile':<38}{summary['null_p95']:>10.3f}")
+        print(f"{'observed percentile':<38}"
+              f"{summary['percentile_of_null']:>9.1f}%")
+        print(f"{'p-value':<38}{summary['p_value']:>10.4f}")
+        print()
+        print(f"{'observed turnover':<38}"
+              f"{schedule_turnover(valid):>10.1f}")
+        print(f"{'null mean turnover':<38}"
+              f"{float(np.mean(null_turnover)):>10.1f}")
+        print("Turnover must match, or this measures cost drag, not timing.")
+        print()
+        print("LOW POWER BY CONSTRUCTION. On simulated data containing a")
+        print("known effect this test reaches only the 60th-77th")
+        print("percentile. A non-significant result here is uninformative;")
+        print("treat it as directional and rely on layer 5.")
+
+    # ---------------- LAYER 5: walk-forward the lookback ----------------
+    if args.walk_forward:
+        lookbacks = (10, 20, 40, 60)
+
+        def select(fold):
+            best, chosen = float("-inf"), None
+
+            for lookback in lookbacks:
+                w = volatility_target_weights(
+                    returns, target_volatility=args.target_vol,
+                    lookback=lookback, max_weight=args.max_weight,
+                )
+                window = (returns.index >= fold.train_start) & (
+                    returns.index <= fold.train_end
+                )
+                c = run_weight_backtest(
+                    returns.loc[window], w.loc[window],
+                    starting_equity=starting_equity,
+                    cost_bps=args.cost_bps,
+                    rebalance_band=args.rebalance_band,
+                    risk_free_rate=args.risk_free_rate,
+                )
+                score = calculate_performance(
+                    c, risk_free_rate=args.risk_free_rate
+                )["sharpe"]
+
+                if score > best:
+                    best, chosen = score, {"lookback": lookback}
+
+            return (chosen, best, {}) if chosen else (
+                None, float("nan"), {}
+            )
+
+        def evaluate(fold, config):
+            w = volatility_target_weights(
+                returns, target_volatility=args.target_vol,
+                lookback=config["lookback"], max_weight=args.max_weight,
+            )
+            window = (returns.index >= fold.test_start) & (
+                returns.index <= fold.test_end
+            )
+            c = run_weight_backtest(
+                returns.loc[window], w.loc[window],
+                starting_equity=starting_equity,
+                cost_bps=args.cost_bps,
+                rebalance_band=args.rebalance_band,
+                risk_free_rate=args.risk_free_rate,
+            )
+            return c["equity"].pct_change().fillna(0.0), 0, {}
+
+        results = run_walk_forward(
+            returns.index, select=select, evaluate=evaluate,
+            train_sessions=args.train_sessions,
+            test_sessions=args.test_sessions,
+        )
+
+        oos = stitch_out_of_sample(results, starting_equity=starting_equity)
+        oos_curve = oos.copy()
+        oos_curve["open_positions"] = 1
+        oos_curve["exposure_pct"] = float("nan")
+
+        oos_performance = calculate_performance(
+            oos_curve, risk_free_rate=args.risk_free_rate
+        )
+        oos_benchmark = calculate_performance(
+            build_benchmark_curve(
+                split_df, SYMBOL, starting_equity=starting_equity,
+                sessions=oos.index,
+            ),
+            risk_free_rate=args.risk_free_rate,
+        )
+        stability = parameter_stability(results)
+
+        print()
+        print("LAYER 5 - WALK-FORWARD (lookback re-selected per fold)")
+        print("=" * 72)
+        print(f"{'folds':<30}{len(results):>10}")
+        print(f"{'lookbacks chosen':<30}"
+              f"{str(stability['lookback']['values']):>40}")
+        print(f"{'changed':<30}"
+              f"{stability['lookback']['changed_fraction']:>9.0%}")
+        print()
+        print(f"{'':<30}{'WALK-FWD':>11}{'BUY & HOLD':>13}")
+        print("-" * 72)
+        for label, key, fmt in [
+            ("CAGR", "cagr", _pct), ("Sharpe", "sharpe", _num),
+            ("max drawdown", "max_drawdown_pct", _pct),
+            ("Calmar", "calmar", _num),
+        ]:
+            print(f"{label:<30}{fmt(oos_performance[key]):>11}"
+                  f"{fmt(oos_benchmark[key]):>13}")
+        print()
+        print("This is out-of-sample: the lookback used in each window was")
+        print("chosen before that window was seen.")
 
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")

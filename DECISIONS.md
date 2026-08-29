@@ -8,6 +8,109 @@ Newest entries at the top.
 
 ---
 
+## 2026-08-28 — Positive control PASSED. Harness validated end to end.
+
+**Volatility targeting, development split, SPY, target 10%, lookback 20,
+5 bps costs, 0.05 rebalance band, rf 3%:**
+
+```
+LAYER 1  MECHANISM        PASS   correlation 0.559, shrunk R2 0.194
+LAYER 2  IMPLEMENTATION   PASS   vol dispersion 10.29% -> 2.01%
+                                 mean miss vs target 8.04% -> 1.56%
+LAYER 3  ECONOMICS        PASS   Sharpe 0.651 vs 0.487
+
+                    VOL TARGET   BUY & HOLD   STATIC BLEND
+CAGR                     9.38%       11.10%          9.16%
+volatility              10.00%       19.46%         13.93%
+Sharpe                   0.651        0.487          0.487
+max drawdown            11.73%       33.79%         25.10%
+Calmar                   0.800        0.328          0.365
+beta 0.447, alpha 2.28% (t = 1.13), turnover 2.69x, cost drag 0.13%
+```
+
+**The harness is validated.** It correctly killed a fake effect four
+ways and now correctly confirms a real one. Every future negative result
+means something because the pipeline demonstrably does not reject
+everything by construction. That is the entire finding.
+
+**Scrutiny applied equally, as it must be:**
+
+- The Sharpe improvement is NOT statistically significant. 0.651 +/-
+  0.450 against 0.487 +/- 0.432; alpha t = 1.13. Six years cannot
+  establish a 0.16 Sharpe difference.
+- What IS clean: the static blend at 71.6% weight has Sharpe 0.487,
+  identical to buy-and-hold to three decimals, confirming scale
+  invariance. So the entire gain comes from WHEN exposure was held, not
+  how much. The mechanism is isolated structurally, not statistically.
+- Drawdown 11.73% vs 33.79% and Calmar 0.800 vs 0.328 are the more
+  robust results, because they follow from the validated layer 2 rather
+  than from the return path cooperating.
+
+**Why this differs from sma_crossover, and it is the whole point:**
+
+```
+                       sma_crossover   vol target
+configurations tried              36            1
+parameters from             the data   convention
+mechanism stated first            no          yes
+prediction pre-registered         no          yes
+```
+
+No selection correction is required because there was no selection.
+A marginal result costs less credibility when it was not bought with 36
+attempts.
+
+**Precondition discovered while testing:** volatility targeting improves
+Sharpe only when the asset has a positive expected return. With zero
+drift the gross mean is zero, net return is minus the cost drag, and
+Sharpe reduces to -cost/volatility -- so LOWERING volatility makes it
+worse. This is not alpha; it is a more efficient way to hold beta, and
+it needs beta to be worth holding. Caught by a fixture with no drift
+producing the real schedule at the 5th percentile.
+
+## 2026-08-28 — Weight-schedule permutation, and its power limits
+
+**Added:** `permute_weight_schedule` and `schedule_turnover` in
+`significance.py`; layers 4 and 5 in `run_volatility_target.py`.
+
+**The confound, measured.** Shuffling a weight schedule inflates
+turnover roughly sevenfold (22.0 -> 153.5 in testing), because
+volatility-target weights are highly persistent and shuffling makes them
+flip every session. The real strategy then wins on cost drag alone.
+`circular_shift` preserves the path shape and therefore turnover
+exactly, moving only placement in time. It is not a preference here, it
+is the only valid null. The runner prints observed and null turnover so
+the confound stays visible.
+
+**Power characterised, not assumed.** On data engineered to contain a
+real effect, the timing test reaches only:
+
+```
+n=1200 moderate dispersion    33rd percentile
+n=1200 high dispersion        77th percentile
+n=2500 high dispersion        60th percentile
+```
+
+Two attenuations. The analytic ceiling on the gain is
+sqrt(E[1/s^2] * E[s^2]), about 1.27 for realistic equity dispersion.
+Using a noisy 20-session trailing estimate instead of true volatility
+erodes most of that, since the forecast correlates with forward
+volatility at only about 0.5.
+
+**CONSEQUENCE: a non-significant result from layer 4 does not indicate
+absence of timing skill.** The test cannot resolve effects of this size
+at these sample lengths. It is a directional check. Layer 5
+(walk-forward) carries the real evidence.
+
+**Deliberately not fixed by tuning.** The obvious move was to adjust
+fixture parameters until the assertion passed. That is precisely the
+failure this project exists to prevent, so the test asserts direction
+only and documents the measured power instead.
+
+**Also worth keeping:** compute the analytic ceiling before running a
+permutation test. If the expected effect is small relative to sampling
+noise, the test cannot resolve it and the compute is wasted.
+
 ## 2026-08-28 — Hypothesis framework and first real hypothesis
 
 **The test a hypothesis must pass before any code is written:** who is

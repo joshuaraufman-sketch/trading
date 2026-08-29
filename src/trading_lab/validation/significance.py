@@ -364,3 +364,58 @@ def effective_sample_size(
         if effective > 0
         else float("inf"),
     }
+
+def permute_weight_schedule(
+    weights: pd.Series,
+    *,
+    rng: np.random.Generator,
+    method: str = "circular_shift",
+) -> pd.Series:
+    """
+    Produce a null version of a continuous weight schedule.
+
+    ``circular_shift`` rotates the schedule by a random offset. It
+    preserves the exact path shape -- and therefore the turnover -- and
+    moves only where the schedule sits in time, which is the single
+    thing being tested.
+
+    ``shuffle`` randomizes the order of the weights. **It introduces a
+    severe confound and should not be used as a primary null.** A
+    volatility-target schedule is highly persistent; shuffling produces
+    one that flips violently every session, inflating turnover roughly
+    sevenfold in measured cases. The real strategy then wins on cost
+    drag alone, with nothing to do with timing skill. It is offered only
+    as a deliberate demonstration of that failure.
+
+    Unlike signal permutation, which preserves a count of discrete
+    events, this preserves the entire distribution of exposure levels.
+    """
+
+    if method not in {"circular_shift", "shuffle"}:
+        raise ValueError(f"unknown permutation method: {method!r}")
+
+    values = weights.to_numpy(dtype=float)
+    size = len(values)
+
+    if size == 0:
+        raise ValueError("weight schedule is empty")
+
+    if method == "circular_shift":
+        permuted = np.roll(values, int(rng.integers(0, size)))
+    else:
+        permuted = rng.permutation(values)
+
+    return pd.Series(permuted, index=weights.index, name=weights.name)
+
+
+def schedule_turnover(weights: pd.Series) -> float:
+    """
+    Total absolute change in a weight schedule.
+
+    Report this for the observed schedule and for the null. If they
+    differ materially the comparison is measuring cost drag rather than
+    timing, and the p-value is meaningless.
+    """
+
+    return float(weights.diff().abs().sum())
+

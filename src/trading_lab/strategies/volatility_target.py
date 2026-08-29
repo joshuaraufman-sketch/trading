@@ -21,6 +21,15 @@ Note what this is not. Volatility targeting does not predict returns and
 makes no claim to alpha. It is a risk-management transformation, so the
 honest expectation is beta near one, alpha near zero, and a Sharpe that
 may or may not improve.
+
+**Precondition: the asset must have a positive expected return.** The
+strategy harvests a risk premium more efficiently by holding constant
+risk rather than constant dollars. With zero drift there is no premium
+to harvest, and targeting actively HURTS Sharpe: the numerator becomes
+the negative cost drag while targeting shrinks the denominator, so lower
+volatility makes the ratio worse. Answering "who is on the other side"
+for this strategy: nobody. It is a better way to hold beta, and it needs
+beta to be worth holding.
 """
 
 from __future__ import annotations
