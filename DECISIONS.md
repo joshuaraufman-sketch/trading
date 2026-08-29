@@ -8,6 +8,50 @@ Newest entries at the top.
 
 ---
 
+## 2026-08-28 — Paper account replaced; identity now pinned
+
+**What happened:** Alpaca offers no paper-account reset, so a new paper
+account was created and credentials swapped in `.env`. This was the
+right call — it gives a clean audit boundary rather than a murky one.
+
+**What nothing noticed.** No code recorded which account a run touched.
+`AccountState` captured equity, cash and positions but no identity, so
+the swap was invisible to the codebase. Two consequences:
+
+1. `count_submitted_orders_today` globs every `*_forward_run.json`, so
+   order counts now span two accounts.
+2. The four forward runs tracked in git (2026-08-27) belong to the
+   RETIRED account, with different starting equity and unrelated manual
+   positions. The forward-test clock must not count them.
+
+**Action required, not yet done:** move
+`reports/forward_test/*.json` from before the swap into an archive
+directory, or the promotion gate will count a dead account's history.
+
+**Fix shipped:** `AccountState` now records `account_id`,
+`account_number`, `status`, `pattern_day_trader` and `trading_blocked`.
+`config/account.yaml` pins the expected account id;
+`execution/preflight.py` refuses to proceed on a mismatch. While the id
+is blank, identity is a warning rather than a block, and
+`scripts/preflight_check.py` prints the observed id to paste in.
+
+**The check that would have caught the original contamination:** the
+retired account held manual BUD, QQQ and QQQM positions for weeks. QQQ
+was in the strategy universe, so `check_existing_exposure` silently
+blocked one of four symbols, and forward P&L mixed strategy trades with
+unrelated holdings. Preflight now fails on any position outside the
+declared universe. There is a test using those exact symbols.
+
+**Note on safety already present:** `_get_trading_client` hardcodes
+`paper=True`, so live credentials in `.env` would fail rather than trade
+real money. Keep it that way. Going live must be a deliberate code
+change, never an environment variable.
+
+**PDT is a warning, not a block.** Under $25k a margin account is capped
+at three day trades per five business days. A daily-rebalancing strategy
+can trip it unnoticed. Surfaced, not enforced, since the IRA path may
+make it irrelevant.
+
 ## 2026-08-28 — Goal clarified, and the execution layer was blocking it
 
 **Goal on record:** semi-passive income. A system that runs during

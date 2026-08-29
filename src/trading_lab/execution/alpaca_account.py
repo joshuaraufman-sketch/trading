@@ -19,6 +19,12 @@ class AccountState:
     buying_power: float
     positions: list[dict]
     open_orders: list[dict]
+    account_id: str = ""
+    account_number: str = ""
+    status: str = ""
+    pattern_day_trader: bool = False
+    trading_blocked: bool = False
+    is_paper: bool = True
 
 
 def _get_trading_client() -> TradingClient:
@@ -89,4 +95,19 @@ def get_account_state() -> AccountState:
         buying_power=float(account.buying_power),
         positions=positions,
         open_orders=open_orders,
+        # Identity is recorded so a run can be tied to the account it
+        # touched. Swapping credentials without this leaves forward-test
+        # history silently spanning two different accounts, which is
+        # exactly what happened when the original paper account was
+        # replaced.
+        account_id=str(getattr(account, "id", "") or ""),
+        account_number=str(getattr(account, "account_number", "") or ""),
+        status=str(getattr(account, "status", "") or ""),
+        pattern_day_trader=bool(
+            getattr(account, "pattern_day_trader", False)
+        ),
+        trading_blocked=bool(
+            getattr(account, "trading_blocked", False)
+        ),
+        is_paper=True,
     )

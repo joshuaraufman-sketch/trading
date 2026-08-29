@@ -1,0 +1,21 @@
+# Expected account state before any run places an order.
+#
+# The paper account was replaced mid-project (Alpaca offers no reset, so
+# a new account was created and credentials swapped). Nothing noticed,
+# and the forward-test clock silently began spanning two accounts.
+# Pinning the id here makes that impossible to repeat.
+
+# Run scripts/preflight_check.py once, copy the observed account id here.
+# While empty, identity is reported as a warning rather than enforced.
+expected_account_id: ""
+
+# Symbols the strategy is allowed to hold. Anything else in the account
+# is flagged: a manual position blocks rebalancing and contaminates
+# forward-test results.
+universe:
+  - SPY
+
+minimum_equity: 1000.0
+
+require_paper: true
+allow_open_orders: false
