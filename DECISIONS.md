@@ -8,6 +8,49 @@ Newest entries at the top.
 
 ---
 
+## 2026-08-28 — Daily runner: post-close, dry-run by default
+
+**Schedule decided: POST-CLOSE.** The job runs after 16:00 ET, computes
+the target weight from that session's close, and queues orders for the
+next open. This is exactly what the backtest models — a weight knowable
+at the close of t-1 is held into session t. Running pre-open would act
+on a weight one session staler than the research assumed. That
+divergence would be small but real, and it is better introduced
+deliberately than discovered in a reconciliation report.
+
+**Dry run is the default.** `--submit` is required to place anything.
+
+**The runner REFUSES rather than guesses.** Four conditions stop it:
+
+1. preflight failure — the account is not what was expected
+2. stale or mismatched bars — the latest session is not the one being traded
+3. duplicate session — already processed, refusing to double-submit
+4. insufficient history — fewer than lookback+1 sessions
+
+**Stale bars are the check that matters most.** Acting on yesterday's
+close while believing it is today's shifts the entire strategy by one
+session, and it is invisible in the logs: the orders look perfectly
+reasonable, they are just answering the wrong question. The caller
+asserts which session it believes it is trading and the runner refuses
+if the data disagrees.
+
+**Decision logic is pure.** `build_daily_plan` takes an account state
+and a bar frame and returns a plan. No clock, no calendar, no network,
+no credentials. Every refusal condition is therefore unit tested.
+
+**Idempotency** is read from the run log: only sessions with
+`submitted: true` count as complete, so a dry run does not block a later
+real one, and a retry after a transient failure will not double-submit.
+
+**`config/live_strategy.yaml`** holds the deployed parameters, with a
+test asserting they still match what research validated (SPY, 10%
+target, 20-session lookback). Drift there means trading a strategy that
+was never tested while the reports describe a different one.
+
+**Two separate switches guard leverage.** `live_strategy.max_weight` and
+`execution_policy.max_gross_exposure` would BOTH have to change. That is
+deliberate: a single accidental edit cannot enable borrowing.
+
 ## 2026-08-28 — Preflight false positive: enum stringification
 
 **Bug:** `run_preflight` rejected a perfectly healthy account. alpaca-py

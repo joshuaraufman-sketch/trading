@@ -1,0 +1,24 @@
+# The deployed strategy. These values MUST match what was validated in
+# research -- see DECISIONS.md, "Positive control PASSED".
+#
+# Validated on the development split: mechanism, implementation and
+# economics all passed, and the result survived walk-forward with 99%
+# of in-sample Sharpe retained.
+#
+# Chosen by convention BEFORE seeing results, not by sweeping. That is
+# why no selection-bias correction applies to them, and it is why
+# changing them casually would invalidate that property.
+
+symbol: "SPY"
+
+# Annualized volatility to hold. 10% is roughly half SPY's long-run
+# realized volatility.
+target_volatility: 0.10
+
+# Sessions of trailing history used to estimate volatility.
+lookback: 20
+
+# 1.0 means de-risk only, never lever. Raising this requires margin and
+# is deliberately NOT the same switch as execution_policy's
+# max_gross_exposure -- both would have to change.
+max_weight: 1.0
