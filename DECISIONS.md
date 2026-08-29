@@ -8,6 +8,100 @@ Newest entries at the top.
 
 ---
 
+## 2026-08-28 — Hypothesis framework and first real hypothesis
+
+**The test a hypothesis must pass before any code is written:** who is
+on the other side, and why do they keep losing? Every dollar of edge is
+someone else's. If the counterparty cannot be named and their persistent
+willingness to lose explained, it is a pattern, not a hypothesis.
+
+`sma_crossover` failed this before it was ever run. "Price crossed a
+line" names no counterparty and describes no mechanism.
+
+Durable sources for a retail participant, in rough order of reliability:
+forced traders (index inclusion, close auctions, margin calls, quarter
+end), risk transfer (volatility premium, carry), mandate constraints,
+and behavioural effects (weakest, most arbitraged).
+
+**Structural decision — the universe is the binding constraint.**
+SPY/QQQ/IWM/DIA correlate around 0.9, giving an effective sample size
+near one instrument. That means every expressible strategy is a
+market-timing strategy, the hardest category in the field. The universe
+choice, made before any hypothesis existed, forced the worst odds
+available. Broadening to a few hundred liquid names is agreed and is
+prerequisite for any cross-sectional work.
+
+**First hypothesis: volatility targeting, run as a positive control.**
+
+The harness has only ever been pointed at things that fail. It has never
+confirmed a true effect end to end, so a future negative result is
+ambiguous: dead strategy, or pipeline eating signal? Volatility
+targeting is documented, robust, and mechanism-driven, which makes it
+the right calibration.
+
+Split into two claims with very different power, tested separately:
+
+- **Mechanism:** trailing volatility predicts forward volatility. High
+  power, should be clearly true. This is the actual positive control.
+- **Economic:** targeting constant risk improves Sharpe. Weak, path
+  dependent, sample dependent.
+
+**Prediction recorded in advance:** mechanism passes clearly; Sharpe may
+FAIL on 2017-2022. March 2020 is the worst case for vol targeting —
+volatility explodes, the model de-risks, and the V-recovery arrives
+while exposure is still reduced. A Sharpe failure would be a real
+property of the strategy on this sample, not a harness fault. A
+*mechanism* failure would indicate a broken pipeline.
+
+## 2026-08-28 — Weight-based backtesting added
+
+**Decision:** `backtest/weights.py` runs target-weight schedules with
+drift, rebalancing bands and turnover costs, alongside the existing
+discrete-trade runner.
+
+**Reasoning:** the runner expresses exactly one shape — signal, entry,
+stop, forced exit. Volatility targeting is a continuous exposure level,
+and every cross-sectional strategy (rank, weight, rebalance) is
+weight-based too. Neither fits the trade-based runner without distortion.
+
+**Enforced inside the module, not left to callers:** weights are lagged
+one session, and turnover is charged. Both are easy to get wrong in ways
+that silently manufacture edge, and a look-ahead weight schedule
+produces an entirely plausible-looking curve. There is a test asserting
+a schedule invested only on the single best session captures nothing.
+
+## 2026-08-28 — The positive control failed, and the failure was the lesson
+
+**What happened:** the mechanism test initially reported R-squared of
+-0.046 on simulated GARCH data with obvious volatility clustering. The
+control existed to catch exactly this, and it did.
+
+**Diagnosis:** trailing realized volatility is an unbiased but NOISY
+estimator. Its dispersion (sd 0.119) slightly exceeds forward realized
+volatility's (0.117), so used as a raw point forecast the estimator
+noise inflates mean squared error past the unconditional mean —
+producing a negative R-squared while the correlation was 0.484 and the
+true conditional-volatility autocorrelation was 0.561.
+
+**An uncalibrated forecast can make a genuine effect look like nothing.**
+Had this run on a novel strategy instead of a known-positive control,
+the conclusion would have been "no effect" and the finding discarded.
+
+**Fix:** `volatility_forecast_skill` now reports three numbers, and only
+the third is the verdict — correlation (information content),
+`raw_r_squared` (calibration diagnostic, often negative), and
+`shrunk_r_squared` (expanding-window shrinkage fit, the honest measure).
+On the same data the shrunk R-squared is 0.239 with a shrinkage slope of
+0.478.
+
+**Look-ahead guard:** the expanding fit at observation i uses only
+observations whose forward window closed before i. Overlapping forward
+windows would otherwise leak future data into the slope.
+
+**Carry this forward:** before concluding a hypothesis has no effect,
+check whether the forecast is calibrated. Correlation and R-squared can
+disagree, and R-squared alone will discard real signal.
+
 ## 2026-08-28 — Selection correction run: nothing survives
 
 **Result, development split, 100 permutations, full 36-config re-sweep
