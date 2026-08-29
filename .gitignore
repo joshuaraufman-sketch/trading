@@ -40,8 +40,18 @@ reports/pending_signals/
 # Runtime forward-trade state
 reports/forward_trades/
 
+# Local runtime state. Holds the equity baseline -- the one place a
+# dollar figure exists. Run logs reference it only as a ratio, so this
+# file must never be committed.
+state/
+
 # Generated analysis output. DECISIONS.md is the durable record;
 # these are reproducible artifacts and should not be versioned.
+#
+# NOTE: reports/daily_runs/ is deliberately NOT here. Those are the
+# forward-test audit trail -- records of decisions actually taken, which
+# unlike backtest output can never be regenerated. They are normalized
+# so they carry no dollar figures.
 reports/performance/
 reports/significance/
 reports/walk_forward/

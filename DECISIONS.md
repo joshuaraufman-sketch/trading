@@ -8,6 +8,50 @@ Newest entries at the top.
 
 ---
 
+## 2026-08-28 — Run logs are public; everything is normalized
+
+**Correction to an earlier call.** `reports/daily_runs/` was initially
+going to be gitignored alongside the backtest report directories. That
+was wrong. Those directories hold reproducible output — delete them and
+the code regenerates them exactly. A daily run log records what the
+system actually decided and submitted at a moment in time and can never
+be regenerated. It is the forward-test audit trail and belongs in
+version control, consistent with how `reports/forward_test/` was already
+treated.
+
+**Which surfaces a real problem: this repository is PUBLIC.** On a paper
+account an equity line is harmless. The same code pointed at a live
+account would publish a real balance to GitHub every trading day. Order
+notionals leak identically — 900 shares of SPY at $600 states the
+account size as plainly as the equity field.
+
+**Everything in the run log is now a ratio.**
+
+- `equity_ratio` replaces `equity`, measured against a baseline stored
+  in `state/equity_baseline.json`, which is gitignored. That file is the
+  single place a dollar figure exists.
+- `account_fingerprint` (sha256, 12 chars) replaces `account_id` and
+  `account_number`. Detects a credential swap exactly as well — a
+  different account yields a different fingerprint — without publishing
+  the identifier.
+- Orders record `notional_pct`, `current_weight`, `target_weight` and
+  `weight_delta`. Share counts and dollar notionals are omitted. Alpaca's
+  own order history remains the source of truth for fills and is not
+  public.
+
+**This is also the better unit.** The paper account holds $500,000 while
+the backtests assume $100,000; only percentages compare across them.
+Privacy and correctness point the same way here.
+
+**The baseline resets on account change**, rather than being reused.
+Carrying one across a swap would report a fictional cumulative return —
+the same class of error the paper-account replacement already caused
+once. A corrupt baseline file is reset rather than trusted.
+
+**Note:** `config/account.yaml` still pins the raw account id, which is
+fine for paper. Before any live deployment, switch that to a fingerprint
+comparison too.
+
 ## 2026-08-28 — Daily runner: post-close, dry-run by default
 
 **Schedule decided: POST-CLOSE.** The job runs after 16:00 ET, computes

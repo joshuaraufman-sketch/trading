@@ -34,6 +34,11 @@ from trading_lab.execution.daily_runner import (
     build_daily_plan,
     summarize_plan,
 )
+from trading_lab.execution.equity_baseline import (
+    account_fingerprint,
+    load_or_create_baseline,
+    normalize_order,
+)
 from trading_lab.execution.preflight import AccountExpectations
 from trading_lab.execution.rebalance import ExecutionPolicy
 
@@ -43,6 +48,8 @@ ACCOUNT_PATH = PROJECT_ROOT / "config" / "account.yaml"
 POLICY_PATH = PROJECT_ROOT / "config" / "execution_policy.yaml"
 STRATEGY_PATH = PROJECT_ROOT / "config" / "live_strategy.yaml"
 RUN_DIR = PROJECT_ROOT / "reports" / "daily_runs"
+# Local only, gitignored. The single place a dollar figure lives.
+BASELINE_PATH = PROJECT_ROOT / "state" / "equity_baseline.json"
 
 NEW_YORK = ZoneInfo("America/New_York")
 
@@ -127,6 +134,17 @@ def main() -> None:
 
     account_state = get_account_state()
 
+    baseline, baseline_created = load_or_create_baseline(
+        BASELINE_PATH,
+        account_id=account_state.account_id,
+        equity=account_state.equity,
+    )
+    equity_ratio = baseline.ratio(account_state.equity)
+
+    print(f"account            {account_fingerprint(account_state.account_id)}")
+    print(f"equity vs baseline {equity_ratio:.4f}x"
+          + ("  (baseline established this run)" if baseline_created else ""))
+
     bars = get_daily_bars(
         symbols=[strategy.symbol],
         start="2024-01-01",
@@ -175,8 +193,10 @@ def main() -> None:
                 {
                     "symbol": order.symbol,
                     "side": order.side,
-                    "quantity": order.quantity,
-                    "result": str(result),
+                    "notional_pct": (
+                        order.notional / account_state.equity
+                    ),
+                    "accepted": result is not None,
                 }
             )
             print(f"  {order.side.upper():<5}{order.symbol:<8}"
@@ -195,23 +215,25 @@ def main() -> None:
                 "run_time_utc": datetime.now(timezone.utc).isoformat(),
                 # Stamped so a credential swap can never again leave
                 # history silently spanning two accounts.
-                "account_id": account_state.account_id,
-                "account_number": account_state.account_number,
-                "equity": account_state.equity,
+                # Fingerprint, not the id: detects a credential swap
+                # just as well without publishing the identifier.
+                "account_fingerprint": account_fingerprint(
+                    account_state.account_id
+                ),
+                # Ratio, not dollars. This log is public.
+                "equity_ratio": equity_ratio,
+                "baseline_reset": baseline_created,
                 "submitted": bool(submitted),
                 "dry_run": not args.submit,
                 "blocked_reason": plan.blocked_reason,
                 "target_weights": plan.target_weights,
                 "diagnostics": plan.diagnostics,
+                # Share counts and dollar notionals are omitted: they
+                # state the account size as plainly as an equity line.
+                # Alpaca's own order history is the source of truth for
+                # fills and is not public.
                 "orders": [
-                    {
-                        "symbol": o.symbol,
-                        "side": o.side,
-                        "quantity": o.quantity,
-                        "reference_price": o.reference_price,
-                        "current_weight": o.current_weight,
-                        "target_weight": o.target_weight,
-                    }
+                    normalize_order(o, account_state.equity)
                     for o in (
                         plan.rebalance.orders if plan.rebalance else []
                     )

@@ -1,0 +1,67 @@
+{
+  "session": "2026-08-29",
+  "run_time_utc": "2026-08-29T15:07:50.993415+00:00",
+  "account_id": "69b01b31-aa3d-475d-8b2c-fd14f6d206d7",
+  "account_number": "PA35N5SMTVQ7",
+  "equity": 500000.0,
+  "submitted": false,
+  "dry_run": true,
+  "blocked_reason": "stale or mismatched data: latest bar is 2026-08-28, expected 2026-08-29. Refusing to act on the wrong session's close.",
+  "target_weights": {},
+  "diagnostics": {
+    "latest_bar_session": "2026-08-28"
+  },
+  "orders": [],
+  "skipped": {},
+  "submitted_orders": [],
+  "preflight": [
+    {
+      "name": "paper mode",
+      "passed": true,
+      "detail": "paper account confirmed",
+      "blocking": true
+    },
+    {
+      "name": "trading enabled",
+      "passed": true,
+      "detail": "trading permitted",
+      "blocking": true
+    },
+    {
+      "name": "account active",
+      "passed": true,
+      "detail": "status: ACTIVE",
+      "blocking": true
+    },
+    {
+      "name": "account identity",
+      "passed": true,
+      "detail": "matches pinned account 69b01b31-aa3d-475d-8b2c-fd14f6d206d7",
+      "blocking": true
+    },
+    {
+      "name": "no unexpected positions",
+      "passed": true,
+      "detail": "0 position(s), all within universe",
+      "blocking": true
+    },
+    {
+      "name": "no stale open orders",
+      "passed": true,
+      "detail": "no open orders",
+      "blocking": true
+    },
+    {
+      "name": "sufficient equity",
+      "passed": true,
+      "detail": "equity $500,000.00 (minimum $1,000.00)",
+      "blocking": true
+    },
+    {
+      "name": "pattern day trader flag",
+      "passed": true,
+      "detail": "not flagged",
+      "blocking": false
+    }
+  ]
+}
